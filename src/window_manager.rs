@@ -213,20 +213,12 @@ pub fn perform_action(action: WindowAction) {
         }
 
         // 6. Work Area calculations
-        let workarea_atom = conn.intern_atom(false, b"_NET_WORKAREA").unwrap().reply().unwrap().atom;
-        let (mut sx, mut sy, mut sw, mut sh) = (0, 0, screen.width_in_pixels as i32, screen.height_in_pixels as i32);
-        if let Ok(cookie) = conn.get_property(false, screen.root, workarea_atom, AtomEnum::CARDINAL, 0, 4) {
-            if let Ok(reply) = cookie.reply() {
-                if let Some(mut values) = reply.value32() {
-                    sx = values.next().unwrap_or(0) as i32;
-                    sy = values.next().unwrap_or(0) as i32;
-                    sw = values.next().unwrap_or(sw as u32) as i32;
-                    sh = values.next().unwrap_or(sh as u32) as i32;
-                }
-            }
-        }
+        // We default to the full screen size to allow absolute (0,0) tiling.
+        // We purposefully ignore _NET_WORKAREA (which would include panel offsets)
+        // so that the tiler is not "shunted" by the desktop environment.
+        let (sx, sy, sw, sh) = (0, 0, screen.width_in_pixels as i32, screen.height_in_pixels as i32);
 
-        let bottom_padding = 5;
+        let bottom_padding = 0; // Removed padding to allow exact screen-edge tiling
         let usable_h = sh - bottom_padding;
 
         let (nx, ny, mut nw, mut nh) = match action {
@@ -244,7 +236,7 @@ pub fn perform_action(action: WindowAction) {
             WindowAction::BottomLeftSixth => (sx, sy + usable_h / 2, sw / 3, usable_h / 2),
             WindowAction::BottomCenterSixth => (sx + sw / 3, sy + usable_h / 2, sw / 3, usable_h / 2),
             WindowAction::BottomRightSixth => (sx + sw * 2 / 3, sy + usable_h / 2, sw / 3, usable_h / 2),
-            WindowAction::Center => (sx + sw / 4, sy + usable_h / 4, sw / 2, usable_h / 2),
+            WindowAction::Center => (sx + sw / 4, sy + usable_h / 8, sw / 2, usable_h * 3 / 4),
             WindowAction::Maximize => unreachable!(),
         };
 
@@ -268,8 +260,8 @@ pub fn perform_action(action: WindowAction) {
 
         // Backup: EWMH message to Client Window
         let moveresize_atom = conn.intern_atom(false, b"_NET_MOVERESIZE_WINDOW").unwrap().reply().unwrap().atom;
-        // source=1 (app), mask=15 (x,y,w,h), gravity=10 (Static)
-        let l0 = 10 | (1 << 8) | (15 << 12);
+        // source=1 (app), gravity=10 (Static), mask=15 (x,y,w,h)
+        let l0 = 1 | (10 << 8) | (15 << 12);
         let data = [l0 as u32, nx as u32, ny as u32, nw as u32, nh as u32];
         let event = ClientMessageEvent::new(32, client_win, moveresize_atom, data);
         let _ = conn.send_event(false, screen.root, EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY, event);

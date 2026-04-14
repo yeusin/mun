@@ -73,6 +73,7 @@ pub fn run() -> eframe::Result<()> {
                 #[cfg(target_os = "linux")]
                 _tray_handle,
                 tray_rx: rx,
+                initialized: false,
             })
         }),
     )
@@ -101,6 +102,7 @@ struct MunLauncher {
     #[cfg(target_os = "linux")]
     _tray_handle: Handle<MunTray>,
     tray_rx: Receiver<TrayEvent>,
+    initialized: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -124,6 +126,12 @@ impl eframe::App for MunLauncher {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Force initial hide if not yet initialized
+        if !self.initialized {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            self.initialized = true;
+        }
+
         // Handle global hotkeys - process all queued events
         while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
             if event.state == global_hotkey::HotKeyState::Pressed {
