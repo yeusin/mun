@@ -20,11 +20,12 @@ pub fn run() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([650.0, 480.0])
+            .with_inner_size([650.0, 80.0])
             .with_decorations(false)
             .with_always_on_top()
             .with_transparent(true)
-            .with_visible(false),
+            .with_visible(false)
+            .with_resizable(false),
         ..Default::default()
     };
 
@@ -176,6 +177,8 @@ impl eframe::App for MunLauncher {
             );
         }
 
+        ctx.request_repaint_after(std::time::Duration::from_millis(50));
+
         if self.is_visible {
             let mut visuals = egui::Visuals::dark();
             visuals.window_rounding = 14.0.into();
@@ -219,7 +222,12 @@ impl eframe::App for MunLauncher {
                             });
                         }
                         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                            self.hide_launcher(ctx);
+                            if self.search.search_query.is_empty() {
+                                self.hide_launcher(ctx);
+                            } else {
+                                self.search.search_query.clear();
+                                self.search.update_search(&self.history);
+                            }
                             ui.input_mut(|i| {
                                 i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
                             });
@@ -238,62 +246,74 @@ impl eframe::App for MunLauncher {
                             self.search.update_search(&self.history);
                         }
 
-                        ui.add_space(8.0);
-                        ui.separator();
-                        ui.add_space(8.0);
+                        if !self.search.results.is_empty() {
+                            ui.add_space(8.0);
+                            ui.separator();
+                            ui.add_space(8.0);
 
-                        let mut clicked_idx = None;
-                        egui::ScrollArea::vertical()
-                            .max_height(360.0)
-                            .show(ui, |ui| {
-                                for (idx, result) in self.search.results.iter().enumerate() {
-                                    let is_selected = idx == self.search.selected_idx;
-                                    let mut frame = egui::Frame::none()
-                                        .inner_margin(egui::Margin::symmetric(14.0, 8.0))
-                                        .rounding(8.0);
+                            let mut clicked_idx = None;
+                            let mut hovered_idx = None;
+                            egui::ScrollArea::vertical()
+                                .max_height(360.0)
+                                .show(ui, |ui| {
+                                    for (idx, result) in self.search.results.iter().enumerate() {
+                                        let is_selected = idx == self.search.selected_idx;
+                                        let mut frame = egui::Frame::none()
+                                            .inner_margin(egui::Margin::symmetric(14.0, 8.0))
+                                            .rounding(8.0);
 
-                                    if is_selected {
-                                        frame = frame.fill(egui::Color32::from_rgba_unmultiplied(
-                                            64, 128, 242, 210,
-                                        ));
-                                    }
+                                        if is_selected {
+                                            frame =
+                                                frame.fill(egui::Color32::from_rgba_unmultiplied(
+                                                    64, 128, 242, 210,
+                                                ));
+                                        }
 
-                                    frame.show(ui, |ui| {
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                egui::RichText::new(&result.name)
-                                                    .size(16.0)
-                                                    .color(egui::Color32::WHITE),
-                                            );
-                                            ui.with_layout(
-                                                egui::Layout::right_to_left(egui::Align::Center),
-                                                |ui| {
-                                                    let kind_text = match result.kind {
-                                                        ResultKind::Application => "App",
-                                                        ResultKind::WebSearch => "Web",
-                                                    };
-                                                    ui.label(
-                                                        egui::RichText::new(kind_text)
-                                                            .size(11.0)
-                                                            .color(egui::Color32::from_gray(140)),
-                                                    );
-                                                },
-                                            );
+                                        let inner = frame.show(ui, |ui| {
+                                            ui.horizontal(|ui| {
+                                                let name_text = highlighted_name(
+                                                    &result.name,
+                                                    &result.matched_indices,
+                                                );
+                                                ui.label(name_text);
+                                                ui.with_layout(
+                                                    egui::Layout::right_to_left(
+                                                        egui::Align::Center,
+                                                    ),
+                                                    |ui| {
+                                                        let kind_text = match result.kind {
+                                                            ResultKind::Application => "App",
+                                                            ResultKind::WebSearch => "Web",
+                                                        };
+                                                        ui.label(
+                                                            egui::RichText::new(kind_text)
+                                                                .size(11.0)
+                                                                .color(egui::Color32::from_gray(
+                                                                    140,
+                                                                )),
+                                                        );
+                                                    },
+                                                );
+                                            });
                                         });
-                                    });
 
-                                    if ui.input(|i| i.pointer.any_click())
-                                        && ui.rect_contains_pointer(ui.max_rect())
-                                    {
-                                        clicked_idx = Some(idx);
+                                        if inner.response.clicked() {
+                                            clicked_idx = Some(idx);
+                                        }
+                                        if inner.response.hovered() {
+                                            hovered_idx = Some(idx);
+                                        }
                                     }
-                                }
-                            });
+                                });
 
-                        if let Some(idx) = clicked_idx {
-                            self.search.selected_idx = idx;
-                            self.search.execute_selected(&mut self.history);
-                            self.hide_launcher(ctx);
+                            if let Some(idx) = hovered_idx {
+                                self.search.selected_idx = idx;
+                            }
+                            if let Some(idx) = clicked_idx {
+                                self.search.selected_idx = idx;
+                                self.search.execute_selected(&mut self.history);
+                                self.hide_launcher(ctx);
+                            }
                         }
 
                         ui.add_space(10.0);
@@ -308,14 +328,67 @@ impl eframe::App for MunLauncher {
                         response.request_focus();
                     });
                 });
+
+            let result_count = self.search.results.len();
+            let base_height = 80.0;
+            let result_height = 44.0;
+            let separator_height = 16.0;
+            let footer_height = 26.0;
+            let visible_results = result_count.min(8) as f32;
+            let desired_height = if result_count > 0 {
+                base_height + separator_height + (visible_results * result_height) + footer_height
+            } else {
+                base_height + footer_height
+            };
+            let desired_height = desired_height.min(480.0);
+
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                650.0,
+                desired_height,
+            )));
         }
     }
+}
+
+fn highlighted_name(name: &str, indices: &[usize]) -> egui::WidgetText {
+    if indices.is_empty() {
+        return egui::RichText::new(name.to_string())
+            .size(16.0)
+            .color(egui::Color32::WHITE)
+            .into();
+    }
+
+    let index_set: std::collections::HashSet<usize> = indices.iter().copied().collect();
+    let mut layout_job = egui::text::LayoutJob::default();
+    for (i, ch) in name.chars().enumerate() {
+        let is_match = index_set.contains(&i);
+        layout_job.append(
+            &ch.to_string(),
+            0.0,
+            egui::TextFormat {
+                font_id: egui::FontId::proportional(16.0),
+                color: if is_match {
+                    egui::Color32::from_rgb(100, 180, 255)
+                } else {
+                    egui::Color32::WHITE
+                },
+                underline: if is_match {
+                    egui::Stroke::new(1.0, egui::Color32::from_rgb(100, 180, 255))
+                } else {
+                    egui::Stroke::NONE
+                },
+                ..Default::default()
+            },
+        );
+    }
+    egui::WidgetText::LayoutJob(layout_job)
 }
 
 impl MunLauncher {
     fn hide_launcher(&mut self, ctx: &egui::Context) {
         self.is_visible = false;
         self.search.search_query.clear();
+        self.search.results.clear();
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
     }
 
@@ -323,10 +396,18 @@ impl MunLauncher {
         self.is_visible = !self.is_visible;
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(self.is_visible));
         if self.is_visible {
+            self.center_on_screen(ctx);
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             self.search.update_search(&self.history);
         } else {
             self.search.search_query.clear();
+            self.search.results.clear();
+        }
+    }
+
+    fn center_on_screen(&self, ctx: &egui::Context) {
+        if let Some(cmd) = egui::ViewportCommand::center_on_screen(ctx) {
+            ctx.send_viewport_cmd(cmd);
         }
     }
 }

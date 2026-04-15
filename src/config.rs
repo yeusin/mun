@@ -210,20 +210,13 @@ impl LauncherHistory {
         }
     }
 
-    pub fn save(&self) {
-        let path = Self::history_path();
-        if let Ok(data) = serde_json::to_string_pretty(self) {
-            std::fs::write(&path, data).ok();
-        }
-    }
-
     pub fn record(&mut self, query: &str, exec: &str) {
         let query = query.trim().to_lowercase();
         let exec_counts = self.usage.entry(query).or_default();
         let count = exec_counts.entry(exec.to_string()).or_insert(0);
         *count += 1;
         self.evict_if_needed();
-        self.save();
+        self.save_async();
     }
 
     pub fn get_score(&self, query: &str, exec: &str) -> u32 {
@@ -233,6 +226,29 @@ impl LauncherHistory {
             .and_then(|exec_counts| exec_counts.get(exec))
             .copied()
             .unwrap_or(0)
+    }
+
+    pub fn save_async(&self) {
+        let path = Self::history_path();
+        let data = serde_json::to_string_pretty(self).ok();
+        std::thread::spawn(move || {
+            if let Some(data) = data {
+                std::fs::write(&path, data).ok();
+            }
+        });
+    }
+
+    pub fn top_execs_overall(&self, limit: usize) -> Vec<(String, u32)> {
+        let mut totals: HashMap<String, u32> = HashMap::new();
+        for execs in self.usage.values() {
+            for (exec, count) in execs {
+                *totals.entry(exec.clone()).or_insert(0) += count;
+            }
+        }
+        let mut ranked: Vec<(String, u32)> = totals.into_iter().collect();
+        ranked.sort_by(|a, b| b.1.cmp(&a.1));
+        ranked.truncate(limit);
+        ranked
     }
 
     fn evict_if_needed(&mut self) {

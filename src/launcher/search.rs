@@ -8,9 +8,12 @@ use std::sync::{Arc, Mutex};
 pub struct SearchResult {
     pub name: String,
     pub exec: String,
+    #[allow(dead_code)]
+    pub icon: Option<String>,
     pub score: i64,
     pub history_score: u32,
     pub kind: ResultKind,
+    pub matched_indices: Vec<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -56,21 +59,23 @@ impl SearchState {
         self.current_query = query.clone();
 
         if query.is_empty() {
-            self.results = Vec::new();
+            self.results = self.build_recents(history);
             self.selected_idx = 0;
             return;
         }
 
         let apps = self.apps.lock().unwrap();
         for app in apps.iter() {
-            if let Some(score) = self.matcher.fuzzy_match(&app.name, &query) {
+            if let Some((score, indices)) = self.matcher.fuzzy_indices(&app.name, &query) {
                 let history_score = history.get_score(&query, &app.exec);
                 new_results.push(SearchResult {
                     name: app.name.clone(),
                     exec: app.exec.clone(),
+                    icon: app.icon.clone(),
                     score,
                     history_score,
                     kind: ResultKind::Application,
+                    matched_indices: indices,
                 });
             }
         }
@@ -89,9 +94,11 @@ impl SearchState {
         new_results.push(SearchResult {
             name: format!("Search Google for \"{}\"", self.search_query),
             exec: web_exec,
+            icon: None,
             score: -100,
             history_score,
             kind: ResultKind::WebSearch,
+            matched_indices: Vec::new(),
         });
 
         if history_score > 0 {
@@ -106,6 +113,26 @@ impl SearchState {
 
         self.results = new_results;
         self.selected_idx = 0;
+    }
+
+    fn build_recents(&self, history: &LauncherHistory) -> Vec<SearchResult> {
+        let top = history.top_execs_overall(10);
+        let apps = self.apps.lock().unwrap();
+        let mut results = Vec::new();
+        for (exec, count) in &top {
+            if let Some(app) = apps.iter().find(|a| a.exec == *exec) {
+                results.push(SearchResult {
+                    name: app.name.clone(),
+                    exec: app.exec.clone(),
+                    icon: app.icon.clone(),
+                    score: 0,
+                    history_score: *count,
+                    kind: ResultKind::Application,
+                    matched_indices: Vec::new(),
+                });
+            }
+        }
+        results
     }
 
     pub fn execute_selected(&self, history: &mut LauncherHistory) {
