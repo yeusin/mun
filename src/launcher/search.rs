@@ -137,6 +137,7 @@ impl SearchState {
 
     pub fn execute_selected(&self, history: &mut LauncherHistory) {
         if let Some(result) = self.results.get(self.selected_idx) {
+            log::info!("Executing: {} ({:?})", result.name, result.kind);
             history.record(&self.current_query, &result.exec);
 
             match result.kind {

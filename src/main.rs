@@ -4,11 +4,9 @@ mod app_scanner;
 mod config;
 
 fn main() {
-    println!("Starting Mun - Launcher and Window Manager");
-    // Start the launcher GUI
-    // In a real application, you might want a background daemon listening to global hotkeys 
-    // to toggle the launcher and trigger window manager actions.
+    env_logger::init();
+    log::info!("Starting Mun - Launcher and Window Manager");
     if let Err(e) = launcher::run() {
-        eprintln!("Failed to run launcher: {:?}", e);
+        log::error!("Failed to run launcher: {:?}", e);
     }
 }

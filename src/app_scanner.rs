@@ -23,16 +23,17 @@ pub fn scan_apps() -> Vec<AppInfo> {
         if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("desktop") {
-                    if let Some(app) = parse_desktop_file(path) {
-                        let key = app.name.to_lowercase();
-                        apps.entry(key).or_insert(app);
-                    }
+                if path.extension().and_then(|s| s.to_str()) == Some("desktop")
+                    && let Some(app) = parse_desktop_file(path)
+                {
+                    let key = app.name.to_lowercase();
+                    apps.entry(key).or_insert(app);
                 }
             }
         }
     }
 
+    log::info!("Scanned {} applications", apps.len());
     apps.into_values().collect()
 }
 
@@ -155,10 +156,10 @@ fn parse_desktop_file(path: PathBuf) -> Option<AppInfo> {
         return None;
     }
 
-    if let Some(ref t) = app_type {
-        if t != "Application" {
-            return None;
-        }
+    if let Some(ref t) = app_type
+        && t != "Application"
+    {
+        return None;
     }
 
     match (name, exec) {

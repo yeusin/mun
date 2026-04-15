@@ -151,12 +151,7 @@ impl Default for Config {
 impl Config {
     fn base_config_dir() -> PathBuf {
         let proj_dirs = ProjectDirs::from("", "", "mun").expect("Failed to get config directory");
-        let mut config_dir = proj_dirs.config_dir().to_path_buf();
-        if cfg!(target_os = "linux") {
-            if let Some(home) = std::env::var_os("HOME") {
-                config_dir = PathBuf::from(home).join(".config").join("mun");
-            }
-        }
+        let config_dir = proj_dirs.config_dir().to_path_buf();
         std::fs::create_dir_all(&config_dir).ok();
         config_dir
     }
@@ -169,14 +164,19 @@ impl Config {
         let path = Self::config_path();
         if let Ok(data) = std::fs::read_to_string(&path) {
             match serde_json::from_str::<Config>(&data) {
-                Ok(config) => config,
-                Err(_) => {
+                Ok(config) => {
+                    log::info!("Loaded config from {}", path.display());
+                    config
+                }
+                Err(e) => {
+                    log::warn!("Failed to parse config ({}), using defaults", e);
                     let config = Config::default();
                     config.save();
                     config
                 }
             }
         } else {
+            log::info!("No config found, creating default at {}", path.display());
             let config = Self::default();
             config.save();
             config
@@ -185,8 +185,10 @@ impl Config {
 
     pub fn save(&self) {
         let path = Self::config_path();
-        if let Ok(data) = serde_json::to_string_pretty(self) {
-            std::fs::write(&path, data).ok();
+        if let Ok(data) = serde_json::to_string_pretty(self)
+            && let Err(e) = std::fs::write(&path, &data)
+        {
+            log::error!("Failed to save config to {}: {}", path.display(), e);
         }
     }
 }

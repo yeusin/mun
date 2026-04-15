@@ -78,10 +78,13 @@ pub fn perform_action(action: WindowAction) {
         bounds_script
     );
 
-    let _ = std::process::Command::new("osascript")
+    if let Err(e) = std::process::Command::new("osascript")
         .arg("-e")
         .arg(&script)
-        .spawn();
+        .spawn()
+    {
+        log::error!("Failed to run osascript for window action: {}", e);
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -93,7 +96,10 @@ pub fn perform_action(action: WindowAction) {
 
     let (conn, screen_num) = match x11rb::connect(None) {
         Ok(c) => c,
-        Err(_) => return,
+        Err(e) => {
+            log::error!("Failed to connect to X11: {}", e);
+            return;
+        }
     };
     let setup = conn.setup();
     let screen = &setup.roots[screen_num];
@@ -114,20 +120,20 @@ pub fn perform_action(action: WindowAction) {
         AtomEnum::WINDOW,
         0,
         1,
-    ) {
-        if let Ok(reply) = cookie.reply() {
-            client_win = reply.value32().and_then(|mut v| v.next()).unwrap_or(0);
-        }
+    )
+        && let Ok(reply) = cookie.reply()
+    {
+        client_win = reply.value32().and_then(|mut v| v.next()).unwrap_or(0);
     }
-    if client_win == 0 {
-        if let Ok(cookie) = conn.get_input_focus() {
-            if let Ok(reply) = cookie.reply() {
-                client_win = reply.focus;
-            }
-        }
+    if client_win == 0
+        && let Ok(cookie) = conn.get_input_focus()
+        && let Ok(reply) = cookie.reply()
+    {
+        client_win = reply.focus;
     }
 
     if client_win == 0 || client_win == 1 || client_win == screen.root {
+        log::warn!("No valid active window found");
         return;
     }
 
@@ -138,12 +144,12 @@ pub fn perform_action(action: WindowAction) {
         AtomEnum::STRING,
         0,
         1024,
-    ) {
-        if let Ok(reply) = cookie.reply() {
-            let class = String::from_utf8_lossy(&reply.value);
-            if class.contains("mun") {
-                return;
-            }
+    )
+        && let Ok(reply) = cookie.reply()
+    {
+        let class = String::from_utf8_lossy(&reply.value);
+        if class.contains("mun") {
+            return;
         }
     }
 
@@ -161,24 +167,32 @@ pub fn perform_action(action: WindowAction) {
 
     let wm_state = match intern_atom(&conn, b"_NET_WM_STATE") {
         Some(a) => a,
-        None => return,
+        None => {
+            log::error!("Failed to intern _NET_WM_STATE atom");
+            return;
+        }
     };
     let wm_max_vert = match intern_atom(&conn, b"_NET_WM_STATE_MAXIMIZED_VERT") {
         Some(a) => a,
-        None => return,
+        None => {
+            log::error!("Failed to intern _NET_WM_STATE_MAXIMIZED_VERT atom");
+            return;
+        }
     };
     let wm_max_horz = match intern_atom(&conn, b"_NET_WM_STATE_MAXIMIZED_HORZ") {
         Some(a) => a,
-        None => return,
+        None => {
+            log::error!("Failed to intern _NET_WM_STATE_MAXIMIZED_HORZ atom");
+            return;
+        }
     };
 
     let mut is_maximized = false;
-    if let Ok(cookie) = conn.get_property(false, client_win, wm_state, AtomEnum::ATOM, 0, 1024) {
-        if let Ok(reply) = cookie.reply() {
-            if let Some(mut atoms) = reply.value32() {
-                is_maximized = atoms.any(|a| a == wm_max_vert || a == wm_max_horz);
-            }
-        }
+    if let Ok(cookie) = conn.get_property(false, client_win, wm_state, AtomEnum::ATOM, 0, 1024)
+        && let Ok(reply) = cookie.reply()
+        && let Some(mut atoms) = reply.value32()
+    {
+        is_maximized = atoms.any(|a| a == wm_max_vert || a == wm_max_horz);
     }
 
     if matches!(action, WindowAction::Maximize) {
@@ -210,7 +224,10 @@ pub fn perform_action(action: WindowAction) {
 
     let hints_atom = match intern_atom(&conn, b"WM_NORMAL_HINTS") {
         Some(a) => a,
-        None => return,
+        None => {
+            log::error!("Failed to intern WM_NORMAL_HINTS atom");
+            return;
+        }
     };
     let mut inc_w = 1i32;
     let mut inc_h = 1i32;
@@ -219,28 +236,27 @@ pub fn perform_action(action: WindowAction) {
     let mut min_w = 0i32;
     let mut min_h = 0i32;
 
-    if let Ok(cookie) = conn.get_property(false, client_win, hints_atom, AtomEnum::ANY, 0, 18) {
-        if let Ok(reply) = cookie.reply() {
-            if let Some(vals) = reply.value32() {
-                let vals: Vec<u32> = vals.collect();
-                if vals.len() >= 7 {
-                    let flags = vals[0];
-                    if flags & (1 << 4) != 0 {
-                        min_w = vals[5] as i32;
-                        min_h = vals[6] as i32;
-                    }
-                    if flags & (1 << 6) != 0 && vals.len() >= 11 {
-                        inc_w = vals[9].max(1) as i32;
-                        inc_h = vals[10].max(1) as i32;
-                    }
-                    if flags & (1 << 8) != 0 && vals.len() >= 17 {
-                        base_w = vals[15] as i32;
-                        base_h = vals[16] as i32;
-                    } else {
-                        base_w = min_w;
-                        base_h = min_h;
-                    }
-                }
+    if let Ok(cookie) = conn.get_property(false, client_win, hints_atom, AtomEnum::ANY, 0, 18)
+        && let Ok(reply) = cookie.reply()
+        && let Some(vals) = reply.value32()
+    {
+        let vals: Vec<u32> = vals.collect();
+        if vals.len() >= 7 {
+            let flags = vals[0];
+            if flags & (1 << 4) != 0 {
+                min_w = vals[5] as i32;
+                min_h = vals[6] as i32;
+            }
+            if flags & (1 << 6) != 0 && vals.len() >= 11 {
+                inc_w = vals[9].max(1) as i32;
+                inc_h = vals[10].max(1) as i32;
+            }
+            if flags & (1 << 8) != 0 && vals.len() >= 17 {
+                base_w = vals[15] as i32;
+                base_h = vals[16] as i32;
+            } else {
+                base_w = min_w;
+                base_h = min_h;
             }
         }
     }

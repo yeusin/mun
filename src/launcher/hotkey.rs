@@ -22,7 +22,7 @@ pub fn register_config_hotkey(
     let code = str_to_code(&config_key.key);
     let hotkey = HotKey::new(Some(modifiers), code);
     if let Err(e) = manager.register(hotkey) {
-        eprintln!("Failed to register hotkey {:?}: {:?}", hotkey, e);
+        log::error!("Failed to register hotkey {:?}: {:?}", hotkey, e);
     }
     (hotkey.id(), hotkey)
 }
