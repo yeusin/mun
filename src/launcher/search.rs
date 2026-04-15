@@ -2,6 +2,7 @@ use crate::app_scanner::{scan_apps, AppInfo};
 use crate::config::LauncherHistory;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]
 pub struct SearchResult {
@@ -19,7 +20,7 @@ pub enum ResultKind {
 }
 
 pub struct SearchState {
-    pub apps: Vec<AppInfo>,
+    pub apps: Arc<Mutex<Vec<AppInfo>>>,
     pub results: Vec<SearchResult>,
     pub selected_idx: usize,
     pub search_query: String,
@@ -30,7 +31,7 @@ pub struct SearchState {
 impl SearchState {
     pub fn new() -> Self {
         Self {
-            apps: scan_apps(),
+            apps: Arc::new(Mutex::new(scan_apps())),
             results: Vec::new(),
             selected_idx: 0,
             search_query: String::new(),
@@ -39,8 +40,14 @@ impl SearchState {
         }
     }
 
-    pub fn rescan_apps(&mut self) {
-        self.apps = scan_apps();
+    pub fn start_background_rescan(apps: Arc<Mutex<Vec<AppInfo>>>) {
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            let scanned = scan_apps();
+            if let Ok(mut locked) = apps.lock() {
+                *locked = scanned;
+            }
+        });
     }
 
     pub fn update_search(&mut self, history: &LauncherHistory) {
@@ -54,7 +61,8 @@ impl SearchState {
             return;
         }
 
-        for app in &self.apps {
+        let apps = self.apps.lock().unwrap();
+        for app in apps.iter() {
             if let Some(score) = self.matcher.fuzzy_match(&app.name, &query) {
                 let history_score = history.get_score(&query, &app.exec);
                 new_results.push(SearchResult {

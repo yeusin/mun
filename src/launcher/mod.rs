@@ -53,6 +53,7 @@ pub fn run() -> eframe::Result<()> {
             let _tray_handle = tray::setup_tray(tx);
 
             let search_state = search::SearchState::new();
+            search::SearchState::start_background_rescan(search_state.apps.clone());
 
             Box::new(MunLauncher {
                 state: Arc::new(Mutex::new(SharedState {
@@ -174,8 +175,6 @@ impl eframe::App for MunLauncher {
                 &self.recording_action,
             );
         }
-
-        ctx.request_repaint_after(std::time::Duration::from_millis(50));
 
         if self.is_visible {
             let mut visuals = egui::Visuals::dark();
@@ -324,7 +323,6 @@ impl MunLauncher {
         self.is_visible = !self.is_visible;
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(self.is_visible));
         if self.is_visible {
-            self.search.rescan_apps();
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             self.search.update_search(&self.history);
         } else {
