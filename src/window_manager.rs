@@ -168,49 +168,38 @@ pub fn perform_action(action: WindowAction) {
 
         if let Ok(cookie) = conn.get_property(false, client_win, hints_atom, AtomEnum::ANY, 0, 18) {
             if let Ok(reply) = cookie.reply() {
-                if let Some(mut vals) = reply.value32() {
-                    let flags = vals.next().unwrap_or(0);
-                    let has_min = flags & (1 << 4) != 0;
-                    let has_inc = flags & (1 << 6) != 0;
-                    let has_base = flags & (1 << 8) != 0;
-                    
-                    for _ in 0..4 { vals.next(); } // Skip obsolete x, y, w, h
-                    if has_min {
-                        min_w = vals.next().unwrap_or(0) as i32;
-                        min_h = vals.next().unwrap_or(0) as i32;
-                    } else { vals.next(); vals.next(); }
-                    
-                    for _ in 0..2 { vals.next(); } // Skip max_w, max_h
-                    if has_inc {
-                        inc_w = vals.next().unwrap_or(1).max(1) as i32;
-                        inc_h = vals.next().unwrap_or(1).max(1) as i32;
-                    } else { vals.next(); vals.next(); }
-                    
-                    for _ in 0..4 { vals.next(); } // Skip aspect ratios
-                    if has_base {
-                        base_w = vals.next().unwrap_or(0) as i32;
-                        base_h = vals.next().unwrap_or(0) as i32;
-                    } else {
-                        base_w = min_w;
-                        base_h = min_h;
+                if let Some(vals) = reply.value32() {
+                    let vals: Vec<u32> = vals.collect();
+                    if vals.len() >= 7 {
+                        let flags = vals[0];
+                        let has_min = flags & (1 << 4) != 0;
+                        let has_inc = flags & (1 << 6) != 0;
+                        let has_base = flags & (1 << 8) != 0;
+
+                        if has_min && vals.len() >= 7 {
+                            min_w = vals[5] as i32;
+                            min_h = vals[6] as i32;
+                        }
+
+                        if has_inc && vals.len() >= 11 {
+                            inc_w = vals[9].max(1) as i32;
+                            inc_h = vals[10].max(1) as i32;
+                        }
+
+                        if has_base && vals.len() >= 17 {
+                            base_w = vals[15] as i32;
+                            base_h = vals[16] as i32;
+                        } else {
+                            base_w = min_w;
+                            base_h = min_h;
+                        }
                     }
                 }
             }
         }
 
-        // 5.1 Get Frame Extents
-        let mut fl = 0; let mut fr = 0; let mut ft = 0; let mut fb = 0;
-        let extents_atom = conn.intern_atom(false, b"_NET_FRAME_EXTENTS").unwrap().reply().unwrap().atom;
-        if let Ok(cookie) = conn.get_property(false, client_win, extents_atom, AtomEnum::CARDINAL, 0, 4) {
-            if let Ok(reply) = cookie.reply() {
-                if let Some(mut values) = reply.value32() {
-                    fl = values.next().unwrap_or(0) as i32;
-                    fr = values.next().unwrap_or(0) as i32;
-                    ft = values.next().unwrap_or(0) as i32;
-                    fb = values.next().unwrap_or(0) as i32;
-                }
-            }
-        }
+        // 5.1 Frame Extents ignored per user request (prevents issues in Xfce/xfwm4)
+        let (fl, fr, ft, fb) = (0, 0, 0, 0);
 
         // 6. Work Area calculations
         // We default to the full screen size to allow absolute (0,0) tiling.
@@ -245,13 +234,25 @@ pub fn perform_action(action: WindowAction) {
         let mut cw = nw - (fl + fr);
         let mut ch = nh - (ft + fb);
 
+        let (original_nw, original_nh) = (nw, nh);
+
         if inc_w > 1 { cw = base_w + ((cw - base_w) / inc_w) * inc_w; }
         if inc_h > 1 { ch = base_h + ((ch - base_h) / inc_h) * inc_h; }
+
+        // Enforce min size
+        cw = cw.max(min_w);
+        ch = ch.max(min_h);
 
         nw = cw + fl + fr;
         nh = ch + ft + fb;
 
-        println!("Executing tiling for 0x{:x}: x={}, y={}, w={}, h={}", client_win, nx, ny, nw, nh);
+        let _dw = original_nw - nw;
+        let _dh = original_nh - nh;
+
+        let nx = nx;
+        let ny = ny;
+
+        println!("Executing tiling for 0x{:x}: x={}, y={}, w={}, h={} (client: {}x{})", client_win, nx, ny, nw, nh, cw, ch);
 
         // 8. Move/Resize
         // Try direct Frame Configuration first (most reliable for xfwm4/gnome)
@@ -260,9 +261,11 @@ pub fn perform_action(action: WindowAction) {
 
         // Backup: EWMH message to Client Window
         let moveresize_atom = conn.intern_atom(false, b"_NET_MOVERESIZE_WINDOW").unwrap().reply().unwrap().atom;
-        // source=1 (app), gravity=10 (Static), mask=15 (x,y,w,h)
-        let l0 = 1 | (10 << 8) | (15 << 12);
-        let data = [l0 as u32, nx as u32, ny as u32, nw as u32, nh as u32];
+        // source=1 (app), gravity=1 (NorthWest), mask=15 (x,y,w,h)
+        // NorthWest gravity (1) ensures nx,ny are interpreted as frame coordinates, 
+        // while cw,ch are the client window dimensions.
+        let l0 = 1 | (1 << 8) | (15 << 12);
+        let data = [l0 as u32, nx as u32, ny as u32, cw as u32, ch as u32];
         let event = ClientMessageEvent::new(32, client_win, moveresize_atom, data);
         let _ = conn.send_event(false, screen.root, EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY, event);
 

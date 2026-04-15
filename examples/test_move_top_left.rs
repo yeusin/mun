@@ -64,7 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 7. Backup: EWMH Move
     let moveresize_atom = conn.intern_atom(false, b"_NET_MOVERESIZE_WINDOW")?.reply()?.atom;
-    let l0 = 1 | (10 << 8) | (3 << 12); // source=1, gravity=Static(10), mask=x|y (3)
+    let l0 = 1 | (1 << 8) | (3 << 12); // source=1, gravity=NorthWest(1), mask=x|y (3)
     let data = [l0 as u32, 0, 0, 0, 0];
     let event = ClientMessageEvent::new(32, client_win, moveresize_atom, data);
     conn.send_event(false, screen.root, EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY, event)?;
