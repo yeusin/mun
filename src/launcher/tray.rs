@@ -81,3 +81,6 @@ pub fn setup_tray(tx: Sender<TrayEvent>) -> Handle<MunTray> {
     };
     tray.spawn().expect("Failed to spawn tray")
 }
+
+#[cfg(target_os = "macos")]
+pub fn setup_tray(_tx: Sender<TrayEvent>) {}

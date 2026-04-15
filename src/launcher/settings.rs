@@ -139,8 +139,10 @@ pub fn show_settings_viewport(
                     ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                         ui.add_space(10.0);
                         ui.horizontal(|ui| {
+                            let config_path = Config::config_path();
+                            let display = config_path.display();
                             ui.label(
-                                egui::RichText::new("Config: ~/.config/mun/config.json")
+                                egui::RichText::new(format!("Config: {}", display))
                                     .size(10.0)
                                     .color(egui::Color32::GRAY),
                             );

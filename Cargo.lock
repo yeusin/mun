@@ -2434,8 +2434,6 @@ name = "mun"
 version = "0.1.0"
 dependencies = [
  "ab_glyph",
- "core-foundation",
- "core-graphics",
  "directories",
  "eframe",
  "egui",

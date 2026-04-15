@@ -52,6 +52,8 @@ pub fn run() -> eframe::Result<()> {
 
             #[cfg(target_os = "linux")]
             let _tray_handle = tray::setup_tray(tx);
+            #[cfg(target_os = "macos")]
+            tray::setup_tray(tx);
 
             let search_state = search::SearchState::new();
             search::SearchState::start_background_rescan(search_state.apps.clone());
