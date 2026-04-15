@@ -107,8 +107,13 @@ impl SearchState {
             match result.kind {
                 ResultKind::Application => {
                     let cmd = result.exec.clone();
+                    let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
                     std::thread::spawn(move || {
-                        let _ = std::process::Command::new("sh").arg("-c").arg(&cmd).spawn();
+                        let _ = std::process::Command::new("sh")
+                            .arg("-c")
+                            .arg(&cmd)
+                            .current_dir(&home)
+                            .spawn();
                     });
                 }
                 ResultKind::WebSearch => {
