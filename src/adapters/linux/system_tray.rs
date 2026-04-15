@@ -1,26 +1,31 @@
+use crate::domain::TrayEvent;
+use crate::ports::SystemTray;
+
+use ksni::blocking::{Handle, TrayMethods};
+use ksni::menu::{MenuItem, StandardItem};
+use ksni::{Icon, Tray};
 use std::sync::mpsc::Sender;
 
-#[cfg(target_os = "linux")]
-use ksni::blocking::{Handle, TrayMethods};
-#[cfg(target_os = "linux")]
-use ksni::menu::{MenuItem, StandardItem};
-#[cfg(target_os = "linux")]
-use ksni::{Icon, Tray};
+pub struct KsniSystemTray;
 
-#[derive(Debug)]
-pub enum TrayEvent {
-    Toggle,
-    Settings,
-    Quit,
+impl SystemTray for KsniSystemTray {
+    type Handle = Handle<MunTray>;
+
+    fn setup(tx: Sender<TrayEvent>) -> Self::Handle {
+        let icon_data = super::icon::render_icon_text("문");
+        let tray = MunTray {
+            sender: tx,
+            icon_data,
+        };
+        tray.spawn().expect("Failed to spawn tray")
+    }
 }
 
-#[cfg(target_os = "linux")]
 pub struct MunTray {
     pub sender: Sender<TrayEvent>,
     pub icon_data: Vec<u8>,
 }
 
-#[cfg(target_os = "linux")]
 impl Tray for MunTray {
     fn id(&self) -> String {
         "mun-launcher".into()
@@ -71,16 +76,3 @@ impl Tray for MunTray {
         let _ = self.sender.send(TrayEvent::Toggle);
     }
 }
-
-#[cfg(target_os = "linux")]
-pub fn setup_tray(tx: Sender<TrayEvent>) -> Handle<MunTray> {
-    let icon_data = super::icon::render_icon_text("문");
-    let tray = MunTray {
-        sender: tx,
-        icon_data,
-    };
-    tray.spawn().expect("Failed to spawn tray")
-}
-
-#[cfg(target_os = "macos")]
-pub fn setup_tray(_tx: Sender<TrayEvent>) {}

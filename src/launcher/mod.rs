@@ -1,8 +1,6 @@
 mod hotkey;
-pub mod icon;
 mod search;
 mod settings;
-mod tray;
 
 use eframe::egui;
 use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager};
@@ -10,11 +8,12 @@ use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, Mutex};
 
 use crate::config::{Config, LauncherHistory};
+use crate::domain::{TrayEvent, WindowAction};
+use crate::ports::{AppScanner, Platform, WindowManager};
 
 pub use search::ResultKind;
-pub use tray::TrayEvent;
 
-pub fn run() -> eframe::Result<()> {
+pub fn run<P: Platform>() -> eframe::Result<()> {
     let config = Config::load();
     let history = LauncherHistory::load();
 
@@ -50,15 +49,14 @@ pub fn run() -> eframe::Result<()> {
 
             let (tx, rx) = channel();
 
-            #[cfg(target_os = "linux")]
-            let _tray_handle = tray::setup_tray(tx);
-            #[cfg(target_os = "macos")]
-            tray::setup_tray(tx);
+            let _tray_handle = P::setup_tray(tx);
 
-            let search_state = search::SearchState::new();
-            search::SearchState::start_background_rescan(search_state.apps.clone());
+            let initial_apps = P::create_scanner().scan_apps();
+            let search_state = search::SearchState::new(initial_apps);
+            let apps = search_state.apps.clone();
+            search::SearchState::start_background_rescan(|| P::create_scanner().scan_apps(), apps);
 
-            Box::new(MunLauncher {
+            Box::new(MunLauncher::<P> {
                 state: Arc::new(Mutex::new(SharedState {
                     config,
                     manager,
@@ -71,7 +69,6 @@ pub fn run() -> eframe::Result<()> {
                 is_visible: false,
                 show_settings: Arc::new(Mutex::new(false)),
                 recording_action: Arc::new(Mutex::new(None)),
-                #[cfg(target_os = "linux")]
                 _tray_handle,
                 tray_rx: rx,
                 initialized: false,
@@ -88,20 +85,19 @@ pub struct SharedState {
     pub hotkeys: Vec<HotKey>,
 }
 
-struct MunLauncher {
+struct MunLauncher<P: Platform> {
     state: Arc<Mutex<SharedState>>,
     history: LauncherHistory,
     search: search::SearchState,
     is_visible: bool,
     show_settings: Arc<Mutex<bool>>,
     recording_action: Arc<Mutex<Option<String>>>,
-    #[cfg(target_os = "linux")]
-    _tray_handle: ksni::blocking::Handle<tray::MunTray>,
+    _tray_handle: P::TrayHandle,
     tray_rx: Receiver<TrayEvent>,
     initialized: bool,
 }
 
-impl eframe::App for MunLauncher {
+impl<P: Platform> eframe::App for MunLauncher<P> {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0, 0.0, 0.0, 0.0]
     }
@@ -120,38 +116,30 @@ impl eframe::App for MunLauncher {
                     self.toggle_launcher(ctx);
                 } else if let Some(action_str) = state.tiling_ids.get(&event.id).cloned() {
                     let action = match action_str.as_str() {
-                        "LeftHalf" => Some(crate::window_manager::WindowAction::LeftHalf),
-                        "RightHalf" => Some(crate::window_manager::WindowAction::RightHalf),
-                        "TopHalf" => Some(crate::window_manager::WindowAction::TopHalf),
-                        "BottomHalf" => Some(crate::window_manager::WindowAction::BottomHalf),
+                        "LeftHalf" => Some(WindowAction::LeftHalf),
+                        "RightHalf" => Some(WindowAction::RightHalf),
+                        "TopHalf" => Some(WindowAction::TopHalf),
+                        "BottomHalf" => Some(WindowAction::BottomHalf),
 
-                        "TopLeft" => Some(crate::window_manager::WindowAction::TopLeft),
-                        "TopRight" => Some(crate::window_manager::WindowAction::TopRight),
-                        "BottomLeft" => Some(crate::window_manager::WindowAction::BottomLeft),
-                        "BottomRight" => Some(crate::window_manager::WindowAction::BottomRight),
+                        "TopLeft" => Some(WindowAction::TopLeft),
+                        "TopRight" => Some(WindowAction::TopRight),
+                        "BottomLeft" => Some(WindowAction::BottomLeft),
+                        "BottomRight" => Some(WindowAction::BottomRight),
 
-                        "TopLeftSixth" => Some(crate::window_manager::WindowAction::TopLeftSixth),
-                        "TopCenterSixth" => {
-                            Some(crate::window_manager::WindowAction::TopCenterSixth)
-                        }
-                        "TopRightSixth" => Some(crate::window_manager::WindowAction::TopRightSixth),
-                        "BottomLeftSixth" => {
-                            Some(crate::window_manager::WindowAction::BottomLeftSixth)
-                        }
-                        "BottomCenterSixth" => {
-                            Some(crate::window_manager::WindowAction::BottomCenterSixth)
-                        }
-                        "BottomRightSixth" => {
-                            Some(crate::window_manager::WindowAction::BottomRightSixth)
-                        }
+                        "TopLeftSixth" => Some(WindowAction::TopLeftSixth),
+                        "TopCenterSixth" => Some(WindowAction::TopCenterSixth),
+                        "TopRightSixth" => Some(WindowAction::TopRightSixth),
+                        "BottomLeftSixth" => Some(WindowAction::BottomLeftSixth),
+                        "BottomCenterSixth" => Some(WindowAction::BottomCenterSixth),
+                        "BottomRightSixth" => Some(WindowAction::BottomRightSixth),
 
-                        "Maximize" => Some(crate::window_manager::WindowAction::Maximize),
-                        "Center" => Some(crate::window_manager::WindowAction::Center),
+                        "Maximize" => Some(WindowAction::Maximize),
+                        "Center" => Some(WindowAction::Center),
                         _ => None,
                     };
                     if let Some(action) = action {
                         std::thread::spawn(move || {
-                            crate::window_manager::perform_action(action);
+                            P::create_window_manager().perform_action(action);
                         });
                     }
                 }
@@ -217,7 +205,8 @@ impl eframe::App for MunLauncher {
                         }
 
                         if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                            self.search.execute_selected(&mut self.history);
+                            self.search
+                                .execute_selected(&mut self.history, &P::create_browser());
                             self.hide_launcher(ctx);
                             ui.input_mut(|i| {
                                 i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
@@ -313,7 +302,8 @@ impl eframe::App for MunLauncher {
                             }
                             if let Some(idx) = clicked_idx {
                                 self.search.selected_idx = idx;
-                                self.search.execute_selected(&mut self.history);
+                                self.search
+                                    .execute_selected(&mut self.history, &P::create_browser());
                                 self.hide_launcher(ctx);
                             }
                         }
@@ -386,7 +376,7 @@ fn highlighted_name(name: &str, indices: &[usize]) -> egui::WidgetText {
     egui::WidgetText::LayoutJob(layout_job)
 }
 
-impl MunLauncher {
+impl<P: Platform> MunLauncher<P> {
     fn hide_launcher(&mut self, ctx: &egui::Context) {
         self.is_visible = false;
         self.search.search_query.clear();

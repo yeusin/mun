@@ -1,9 +1,6 @@
-#[cfg(target_os = "linux")]
 use ab_glyph::{Font, FontRef, Glyph, PxScale};
-#[cfg(target_os = "linux")]
 use image::{Rgba, RgbaImage};
 
-#[cfg(target_os = "linux")]
 pub fn render_icon_text(text: &str) -> Vec<u8> {
     let size = 32;
     let mut image = RgbaImage::new(size, size);

@@ -1,0 +1,19 @@
+#[allow(dead_code)]
+pub enum WindowAction {
+    LeftHalf,
+    RightHalf,
+    TopHalf,
+    BottomHalf,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+    TopLeftSixth,
+    TopCenterSixth,
+    TopRightSixth,
+    BottomLeftSixth,
+    BottomCenterSixth,
+    BottomRightSixth,
+    Maximize,
+    Center,
+}

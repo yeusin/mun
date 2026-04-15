@@ -1,5 +1,6 @@
-use crate::app_scanner::{scan_apps, AppInfo};
 use crate::config::LauncherHistory;
+use crate::domain::AppInfo;
+use crate::ports::BrowserLauncher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use std::sync::{Arc, Mutex};
@@ -32,9 +33,9 @@ pub struct SearchState {
 }
 
 impl SearchState {
-    pub fn new() -> Self {
+    pub fn new(apps: Vec<AppInfo>) -> Self {
         Self {
-            apps: Arc::new(Mutex::new(scan_apps())),
+            apps: Arc::new(Mutex::new(apps)),
             results: Vec::new(),
             selected_idx: 0,
             search_query: String::new(),
@@ -43,10 +44,13 @@ impl SearchState {
         }
     }
 
-    pub fn start_background_rescan(apps: Arc<Mutex<Vec<AppInfo>>>) {
+    pub fn start_background_rescan<F>(scan_fn: F, apps: Arc<Mutex<Vec<AppInfo>>>)
+    where
+        F: Fn() -> Vec<AppInfo> + Send + 'static,
+    {
         std::thread::spawn(move || loop {
             std::thread::sleep(std::time::Duration::from_secs(30));
-            let scanned = scan_apps();
+            let scanned = scan_fn();
             if let Ok(mut locked) = apps.lock() {
                 *locked = scanned;
             }
@@ -135,7 +139,7 @@ impl SearchState {
         results
     }
 
-    pub fn execute_selected(&self, history: &mut LauncherHistory) {
+    pub fn execute_selected(&self, history: &mut LauncherHistory, browser: &impl BrowserLauncher) {
         if let Some(result) = self.results.get(self.selected_idx) {
             log::info!("Executing: {} ({:?})", result.name, result.kind);
             history.record(&self.current_query, &result.exec);
@@ -154,14 +158,7 @@ impl SearchState {
                 }
                 ResultKind::WebSearch => {
                     let url = result.exec.clone();
-                    #[cfg(target_os = "linux")]
-                    std::thread::spawn(move || {
-                        let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
-                    });
-                    #[cfg(target_os = "macos")]
-                    std::thread::spawn(move || {
-                        let _ = std::process::Command::new("open").arg(&url).spawn();
-                    });
+                    browser.open_url(&url);
                 }
             }
         }
