@@ -9,10 +9,12 @@ pub struct AppInfo {
 
 pub fn scan_apps() -> Vec<AppInfo> {
     let mut apps = Vec::new();
-    let dirs = [
-        "/usr/share/applications",
-        "/home/ykim/.local/share/applications", // hardcoded for now or use dirs crate
-    ];
+
+    let user_dir = std::env::var("HOME")
+        .map(|h| format!("{}/.local/share/applications", h))
+        .unwrap_or_else(|_| String::from("/usr/share/applications"));
+
+    let dirs = ["/usr/share/applications", &user_dir];
 
     for dir in dirs {
         if let Ok(entries) = fs::read_dir(dir) {
@@ -26,11 +28,10 @@ pub fn scan_apps() -> Vec<AppInfo> {
             }
         }
     }
-    
-    // De-duplicate by name
+
     apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     apps.dedup_by(|a, b| a.name.to_lowercase() == b.name.to_lowercase());
-    
+
     apps
 }
 
@@ -39,6 +40,8 @@ fn parse_desktop_file(path: PathBuf) -> Option<AppInfo> {
     let mut name = None;
     let mut exec = None;
     let mut in_desktop_entry = false;
+    let mut no_display = false;
+    let mut hidden = false;
 
     for line in content.lines() {
         let line = line.trim();
@@ -54,18 +57,46 @@ fn parse_desktop_file(path: PathBuf) -> Option<AppInfo> {
             continue;
         }
 
-        if line.starts_with("Name=") {
-            name = Some(line[5..].to_string());
-        } else if line.starts_with("Exec=") {
-            // Strip placeholders like %u, %f, %U, %F
-            let full_exec = &line[5..];
-            let clean_exec = full_exec.split(" %").next().unwrap_or(full_exec).to_string();
+        if let Some(value) = line.strip_prefix("Name=") {
+            name = Some(value.to_string());
+        } else if let Some(value) = line.strip_prefix("Exec=") {
+            let clean_exec = strip_desktop_placeholders(value);
             exec = Some(clean_exec);
+        } else if let Some(value) = line.strip_prefix("NoDisplay=") {
+            no_display = value.trim().eq_ignore_ascii_case("true");
+        } else if let Some(value) = line.strip_prefix("Hidden=") {
+            hidden = value.trim().eq_ignore_ascii_case("true");
         }
+    }
+
+    if no_display || hidden {
+        return None;
     }
 
     match (name, exec) {
         (Some(n), Some(e)) => Some(AppInfo { name: n, exec: e }),
         _ => None,
     }
+}
+
+fn strip_desktop_placeholders(exec: &str) -> String {
+    let mut result = String::with_capacity(exec.len());
+    let mut chars = exec.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '%' {
+            let next = chars.peek();
+            if next == Some(&'%') {
+                result.push('%');
+                chars.next();
+            } else {
+                // Skip %f, %F, %u, %U, %d, %D, %n, %N, %i, %c, %k, %v, %m and any other %X
+                chars.next();
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result.trim().to_string()
 }
