@@ -1,4 +1,5 @@
 mod app_scanner;
+mod bookmark;
 mod browser;
 mod icon;
 mod system_tray;
@@ -14,6 +15,7 @@ impl Platform for LinuxPlatform {
     type Browser = browser::XdgOpenBrowser;
     type Tray = system_tray::KsniSystemTray;
     type TrayHandle = ksni::blocking::Handle<system_tray::MunTray>;
+    type Bookmarks = bookmark::LinuxBookmarkScanner;
 
     fn create_scanner() -> Self::Scanner {
         app_scanner::LinuxAppScanner
@@ -29,5 +31,9 @@ impl Platform for LinuxPlatform {
 
     fn setup_tray(tx: std::sync::mpsc::Sender<crate::domain::TrayEvent>) -> Self::TrayHandle {
         <Self::Tray as crate::ports::SystemTray>::setup(tx)
+    }
+
+    fn create_bookmark_scanner() -> Self::Bookmarks {
+        bookmark::LinuxBookmarkScanner
     }
 }

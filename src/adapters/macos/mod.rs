@@ -1,4 +1,5 @@
 mod app_scanner;
+mod bookmark;
 mod browser;
 mod system_tray;
 mod window_manager;
@@ -13,6 +14,7 @@ impl Platform for MacOSPlatform {
     type Browser = browser::OpenCommandBrowser;
     type Tray = system_tray::NoOpSystemTray;
     type TrayHandle = ();
+    type Bookmarks = bookmark::MacOSBookmarkScanner;
 
     fn create_scanner() -> Self::Scanner {
         app_scanner::MacOSAppScanner
@@ -28,5 +30,9 @@ impl Platform for MacOSPlatform {
 
     fn setup_tray(tx: std::sync::mpsc::Sender<crate::domain::TrayEvent>) -> Self::TrayHandle {
         <Self::Tray as crate::ports::SystemTray>::setup(tx)
+    }
+
+    fn create_bookmark_scanner() -> Self::Bookmarks {
+        bookmark::MacOSBookmarkScanner
     }
 }

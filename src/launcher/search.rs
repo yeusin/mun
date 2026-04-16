@@ -1,4 +1,5 @@
 use crate::config::LauncherHistory;
+use crate::domain::calculator;
 use crate::domain::AppInfo;
 use crate::ports::BrowserLauncher;
 use fuzzy_matcher::skim::SkimMatcherV2;
@@ -21,10 +22,14 @@ pub struct SearchResult {
 pub enum ResultKind {
     Application,
     WebSearch,
+    Bookmark,
+    Calculator,
+    Url,
 }
 
 pub struct SearchState {
     pub apps: Arc<Mutex<Vec<AppInfo>>>,
+    pub bookmarks: Arc<Mutex<Vec<AppInfo>>>,
     pub results: Vec<SearchResult>,
     pub selected_idx: usize,
     pub search_query: String,
@@ -36,11 +41,18 @@ impl SearchState {
     pub fn new(apps: Vec<AppInfo>) -> Self {
         Self {
             apps: Arc::new(Mutex::new(apps)),
+            bookmarks: Arc::new(Mutex::new(Vec::new())),
             results: Vec::new(),
             selected_idx: 0,
             search_query: String::new(),
             current_query: String::new(),
             matcher: SkimMatcherV2::default(),
+        }
+    }
+
+    pub fn set_bookmarks(&mut self, bookmarks: Vec<AppInfo>) {
+        if let Ok(mut locked) = self.bookmarks.lock() {
+            *locked = bookmarks;
         }
     }
 
@@ -68,6 +80,12 @@ impl SearchState {
             return;
         }
 
+        if query.starts_with('=') {
+            self.results = self.build_calculator_results(&query[1..]);
+            self.selected_idx = 0;
+            return;
+        }
+
         let apps = self.apps.lock().unwrap();
         for app in apps.iter() {
             if let Some((score, indices)) = self.matcher.fuzzy_indices(&app.name, &query) {
@@ -84,11 +102,39 @@ impl SearchState {
             }
         }
 
-        new_results.sort_by(|a, b| {
-            b.history_score
-                .cmp(&a.history_score)
-                .then_with(|| b.score.cmp(&a.score))
-        });
+        let bookmarks = self.bookmarks.lock().unwrap();
+        for bm in bookmarks.iter() {
+            if let Some((score, indices)) = self.matcher.fuzzy_indices(&bm.name, &query) {
+                let history_score = history.get_score(&query, &bm.exec);
+                new_results.push(SearchResult {
+                    name: bm.name.clone(),
+                    exec: bm.exec.clone(),
+                    icon: bm.icon.clone(),
+                    score,
+                    history_score,
+                    kind: ResultKind::Bookmark,
+                    matched_indices: indices,
+                });
+            }
+        }
+
+        if is_domain(&self.search_query) {
+            let url = if self.search_query.contains("://") {
+                self.search_query.clone()
+            } else {
+                format!("https://{}", self.search_query.trim())
+            };
+            let history_score = history.get_score(&query, &url);
+            new_results.push(SearchResult {
+                name: format!("Open \"{}\"", self.search_query.trim()),
+                exec: url,
+                icon: None,
+                score: -50,
+                history_score,
+                kind: ResultKind::Url,
+                matched_indices: Vec::new(),
+            });
+        }
 
         let web_exec = format!(
             "https://www.google.com/search?q={}",
@@ -105,18 +151,54 @@ impl SearchState {
             matched_indices: Vec::new(),
         });
 
-        if history_score > 0 {
-            new_results.sort_by(|a, b| {
-                b.history_score
-                    .cmp(&a.history_score)
-                    .then_with(|| b.score.cmp(&a.score))
-            });
-        }
+        new_results.sort_by(|a, b| {
+            b.history_score
+                .cmp(&a.history_score)
+                .then_with(|| b.score.cmp(&a.score))
+        });
 
         new_results.truncate(10_000);
 
         self.results = new_results;
         self.selected_idx = 0;
+    }
+
+    fn build_calculator_results(&self, expr: &str) -> Vec<SearchResult> {
+        let expr = expr.trim();
+        if expr.is_empty() {
+            return vec![SearchResult {
+                name: "Calculator — type an expression after =".to_string(),
+                exec: "calc:".to_string(),
+                icon: None,
+                score: 0,
+                history_score: 0,
+                kind: ResultKind::Calculator,
+                matched_indices: Vec::new(),
+            }];
+        }
+        match calculator::evaluate(expr) {
+            Some(value) => {
+                let formatted = calculator::format_result(value);
+                vec![SearchResult {
+                    name: format!("= {}", formatted),
+                    exec: format!("calc:{}", formatted),
+                    icon: None,
+                    score: 0,
+                    history_score: 0,
+                    kind: ResultKind::Calculator,
+                    matched_indices: Vec::new(),
+                }]
+            }
+            None => vec![SearchResult {
+                name: "Calculator (Error)".to_string(),
+                exec: "calc:error".to_string(),
+                icon: None,
+                score: 0,
+                history_score: 0,
+                kind: ResultKind::Calculator,
+                matched_indices: Vec::new(),
+            }],
+        }
     }
 
     fn build_recents(&self, history: &LauncherHistory) -> Vec<SearchResult> {
@@ -142,7 +224,10 @@ impl SearchState {
     pub fn execute_selected(&self, history: &mut LauncherHistory, browser: &impl BrowserLauncher) {
         if let Some(result) = self.results.get(self.selected_idx) {
             log::info!("Executing: {} ({:?})", result.name, result.kind);
-            history.record(&self.current_query, &result.exec);
+
+            if result.kind != ResultKind::Calculator {
+                history.record(&self.current_query, &result.exec);
+            }
 
             match result.kind {
                 ResultKind::Application => {
@@ -156,11 +241,41 @@ impl SearchState {
                             .spawn();
                     });
                 }
-                ResultKind::WebSearch => {
+                ResultKind::WebSearch | ResultKind::Url | ResultKind::Bookmark => {
                     let url = result.exec.clone();
                     browser.open_url(&url);
+                }
+                ResultKind::Calculator => {
+                    if let Some(value) = result.exec.strip_prefix("calc:") {
+                        if value != "error" && !value.is_empty() {
+                            let val = value.to_string();
+                            std::thread::spawn(move || {
+                                if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                                    if let Err(e) = clipboard.set_text(&val) {
+                                        log::error!("Failed to copy to clipboard: {}", e);
+                                    }
+                                }
+                            });
+                            log::info!("Copied to clipboard: {}", value);
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+fn is_domain(query: &str) -> bool {
+    let query = query.trim();
+    if query.is_empty() || query.contains(' ') {
+        return false;
+    }
+    if query.starts_with("http://") || query.starts_with("https://") {
+        return true;
+    }
+    if !query.contains('.') {
+        return false;
+    }
+    let parts: Vec<&str> = query.rsplit('.').collect();
+    parts.first().map_or(false, |tld| tld.len() >= 2)
 }

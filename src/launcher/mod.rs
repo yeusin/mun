@@ -1,4 +1,5 @@
 mod hotkey;
+mod icon_cache;
 mod search;
 mod settings;
 
@@ -9,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::config::{Config, LauncherHistory};
 use crate::domain::{TrayEvent, WindowAction};
-use crate::ports::{AppScanner, Platform, WindowManager};
+use crate::ports::{AppScanner, BookmarkScanner, Platform, WindowManager};
 
 pub use search::ResultKind;
 
@@ -52,9 +53,14 @@ pub fn run<P: Platform>() -> eframe::Result<()> {
             let _tray_handle = P::setup_tray(tx);
 
             let initial_apps = P::create_scanner().scan_apps();
-            let search_state = search::SearchState::new(initial_apps);
+            let mut search_state = search::SearchState::new(initial_apps);
             let apps = search_state.apps.clone();
             search::SearchState::start_background_rescan(|| P::create_scanner().scan_apps(), apps);
+
+            let bookmarks = P::create_bookmark_scanner().scan_bookmarks();
+            search_state.set_bookmarks(bookmarks);
+
+            let icon_cache = icon_cache::IconCache::new(28);
 
             Box::new(MunLauncher::<P> {
                 state: Arc::new(Mutex::new(SharedState {
@@ -72,6 +78,8 @@ pub fn run<P: Platform>() -> eframe::Result<()> {
                 _tray_handle,
                 tray_rx: rx,
                 initialized: false,
+                icon_cache,
+                had_focus: false,
             })
         }),
     )
@@ -95,6 +103,8 @@ struct MunLauncher<P: Platform> {
     _tray_handle: P::TrayHandle,
     tray_rx: Receiver<TrayEvent>,
     initialized: bool,
+    icon_cache: icon_cache::IconCache,
+    had_focus: bool,
 }
 
 impl<P: Platform> eframe::App for MunLauncher<P> {
@@ -106,6 +116,14 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
         if !self.initialized {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             self.initialized = true;
+        }
+
+        if self.is_visible {
+            let has_focus = ctx.input(|i| i.focused);
+            if !has_focus && self.had_focus {
+                self.hide_launcher(ctx);
+            }
+            self.had_focus = has_focus;
         }
 
         while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
@@ -238,18 +256,23 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
                             });
                         }
 
-                        let response = ui.add(
-                            egui::TextEdit::singleline(&mut self.search.search_query)
-                                .hint_text("Search apps or type web search...")
-                                .font(egui::FontId::proportional(22.0))
-                                .frame(false)
-                                .desired_width(f32::INFINITY)
-                                .text_color(egui::Color32::WHITE),
-                        );
+                        ui.horizontal(|ui| {
+                            draw_search_icon(ui);
+                            let response = ui.add(
+                                egui::TextEdit::singleline(&mut self.search.search_query)
+                                    .hint_text("Search apps or type web search...")
+                                    .font(egui::FontId::proportional(22.0))
+                                    .frame(false)
+                                    .desired_width(f32::INFINITY)
+                                    .text_color(egui::Color32::WHITE),
+                            );
 
-                        if response.changed() {
-                            self.search.update_search(&self.history);
-                        }
+                            if response.changed() {
+                                self.search.update_search(&self.history);
+                            }
+
+                            response.request_focus();
+                        });
 
                         if !self.search.results.is_empty() {
                             ui.add_space(8.0);
@@ -274,6 +297,13 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
 
                                         let inner = frame.show(ui, |ui| {
                                             ui.horizontal(|ui| {
+                                                if let Some(texture) =
+                                                    self.icon_cache.get(ctx, &result.icon)
+                                                {
+                                                    let img = egui::Image::new(&texture)
+                                                        .fit_to_exact_size(egui::vec2(28.0, 28.0));
+                                                    ui.add(img);
+                                                }
                                                 let name_text = highlighted_name(
                                                     &result.name,
                                                     &result.matched_indices,
@@ -287,6 +317,9 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
                                                         let kind_text = match result.kind {
                                                             ResultKind::Application => "App",
                                                             ResultKind::WebSearch => "Web",
+                                                            ResultKind::Bookmark => "Bookmark",
+                                                            ResultKind::Calculator => "Calc",
+                                                            ResultKind::Url => "URL",
                                                         };
                                                         ui.label(
                                                             egui::RichText::new(kind_text)
@@ -313,13 +346,13 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
                         ui.add_space(10.0);
                         ui.horizontal(|ui| {
                             ui.label(
-                                egui::RichText::new("↑↓ Navigate    ↵ Open    esc Dismiss")
-                                    .size(10.0)
-                                    .color(egui::Color32::from_gray(100)),
+                                egui::RichText::new(
+                                    "↑↓ Navigate    ↵ Open    esc Dismiss    = Calc",
+                                )
+                                .size(10.0)
+                                .color(egui::Color32::from_gray(100)),
                             );
                         });
-
-                        response.request_focus();
                     });
                 });
 
@@ -342,6 +375,24 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
             )));
         }
     }
+}
+
+fn draw_search_icon(ui: &mut egui::Ui) {
+    let (rect, _response) = ui.allocate_exact_size(egui::vec2(28.0, 28.0), egui::Sense::hover());
+    let center = rect.center();
+    let radius = 6.0;
+    let color = egui::Color32::from_gray(120);
+
+    ui.painter().circle_stroke(
+        egui::pos2(center.x, center.y - 1.0),
+        radius,
+        egui::Stroke::new(2.0, color),
+    );
+
+    let handle_start = egui::pos2(center.x + radius * 0.65, center.y - 1.0 + radius * 0.65);
+    let handle_end = egui::pos2(center.x + radius + 4.0, center.y - 1.0 + radius + 4.0);
+    ui.painter()
+        .line_segment([handle_start, handle_end], egui::Stroke::new(2.5, color));
 }
 
 fn highlighted_name(name: &str, indices: &[usize]) -> egui::WidgetText {
@@ -381,6 +432,7 @@ fn highlighted_name(name: &str, indices: &[usize]) -> egui::WidgetText {
 impl<P: Platform> MunLauncher<P> {
     fn hide_launcher(&mut self, ctx: &egui::Context) {
         self.is_visible = false;
+        self.had_focus = false;
         self.search.search_query.clear();
         self.search.results.clear();
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
@@ -393,9 +445,11 @@ impl<P: Platform> MunLauncher<P> {
             self.center_on_screen(ctx);
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             self.search.update_search(&self.history);
+            self.had_focus = false;
         } else {
             self.search.search_query.clear();
             self.search.results.clear();
+            self.had_focus = false;
         }
     }
 
