@@ -72,6 +72,7 @@ pub fn run<P: Platform>() -> eframe::Result<()> {
                 _tray_handle,
                 tray_rx: rx,
                 initialized: false,
+                previous_mouse_pos: None,
             })
         }),
     )
@@ -95,6 +96,7 @@ struct MunLauncher<P: Platform> {
     _tray_handle: P::TrayHandle,
     tray_rx: Receiver<TrayEvent>,
     initialized: bool,
+    previous_mouse_pos: Option<egui::Pos2>,
 }
 
 impl<P: Platform> eframe::App for MunLauncher<P> {
@@ -168,6 +170,13 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
         }
 
         ctx.request_repaint_after(std::time::Duration::from_millis(50));
+
+        let current_mouse_pos = ctx.input(|i| i.pointer.hover_pos());
+        let mouse_moved = match (current_mouse_pos, self.previous_mouse_pos) {
+            (Some(current), Some(previous)) => current.distance_sq(previous) > 0.0,
+            (Some(_), None) => true,
+            (None, _) => false,
+        };
 
         if self.is_visible {
             let mut visuals = egui::Visuals::dark();
@@ -305,7 +314,7 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
                                         if inner.response.clicked() {
                                             clicked_idx = Some(idx);
                                         }
-                                        if inner.response.hovered() {
+                                        if mouse_moved && inner.response.hovered() {
                                             hovered_idx = Some(idx);
                                         }
                                         if is_selected {
@@ -359,6 +368,7 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
                 desired_height,
             )));
         }
+        self.previous_mouse_pos = current_mouse_pos;
     }
 }
 
