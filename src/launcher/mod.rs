@@ -202,6 +202,20 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
                                     i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
                                 });
                             }
+                            if ui.input(|i| i.key_pressed(egui::Key::PageDown)) {
+                                self.search.selected_idx = (self.search.selected_idx + 8)
+                                    .min(self.search.results.len() - 1);
+                                ui.input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::NONE, egui::Key::PageDown)
+                                });
+                            }
+                            if ui.input(|i| i.key_pressed(egui::Key::PageUp)) {
+                                self.search.selected_idx =
+                                    self.search.selected_idx.saturating_sub(8);
+                                ui.input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::NONE, egui::Key::PageUp)
+                                });
+                            }
                         }
 
                         if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -245,7 +259,7 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
                             let mut clicked_idx = None;
                             let mut hovered_idx = None;
                             egui::ScrollArea::vertical()
-                                .max_height(360.0)
+                                .max_height(358.0)
                                 .show(ui, |ui| {
                                     for (idx, result) in self.search.results.iter().enumerate() {
                                         let is_selected = idx == self.search.selected_idx;
@@ -293,6 +307,12 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
                                         }
                                         if inner.response.hovered() {
                                             hovered_idx = Some(idx);
+                                        }
+                                        if is_selected {
+                                            ui.scroll_to_rect(
+                                                inner.response.rect,
+                                                Some(egui::Align::Center),
+                                            );
                                         }
                                     }
                                 });

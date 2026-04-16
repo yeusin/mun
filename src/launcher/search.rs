@@ -113,14 +113,14 @@ impl SearchState {
             });
         }
 
-        new_results.truncate(10);
+        new_results.truncate(10_000);
 
         self.results = new_results;
         self.selected_idx = 0;
     }
 
     fn build_recents(&self, history: &LauncherHistory) -> Vec<SearchResult> {
-        let top = history.top_execs_overall(10);
+        let top = history.top_execs_overall(50);
         let apps = self.apps.lock().unwrap();
         let mut results = Vec::new();
         for (exec, count) in &top {
