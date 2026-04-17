@@ -20,14 +20,15 @@ pub fn show_settings_viewport(
             .with_title("Mun Settings")
             .with_inner_size([450.0, 600.0])
             .with_decorations(true),
-        move |ctx, class| {
+        move |ui, class| {
+            let ctx = ui.ctx().clone();
             let mut visuals = egui::Visuals::dark();
             visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(30, 30, 30);
             visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(45, 45, 45);
             ctx.set_visuals(visuals);
 
             if class == egui::ViewportClass::Immediate {
-                egui::CentralPanel::default().show(ctx, |ui| {
+                egui::CentralPanel::default().show_inside(ui, |ui| {
                     ui.add_space(10.0);
                     ui.heading(egui::RichText::new("Mun Preferences").size(24.0).strong());
                     ui.add_space(15.0);
@@ -263,7 +264,7 @@ fn hotkey_row_ui(
 
             let mut btn = egui::Button::new(egui::RichText::new(btn_text).strong())
                 .min_size(egui::vec2(120.0, 24.0))
-                .rounding(6.0);
+                .corner_radius(egui::CornerRadius::same(6));
 
             if is_recording {
                 btn = btn

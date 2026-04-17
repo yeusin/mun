@@ -62,7 +62,7 @@ pub fn run<P: Platform>() -> eframe::Result<()> {
 
             let icon_cache = icon_cache::IconCache::new(28);
 
-            Box::new(MunLauncher::<P> {
+            Ok(Box::new(MunLauncher::<P> {
                 state: Arc::new(Mutex::new(SharedState {
                     config,
                     manager,
@@ -81,7 +81,7 @@ pub fn run<P: Platform>() -> eframe::Result<()> {
                 icon_cache,
                 had_focus: false,
                 needs_centering: false,
-            })
+            }))
         }),
     )
 }
@@ -114,7 +114,7 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
         [0.0, 0.0, 0.0, 0.0]
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if !self.initialized {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             self.initialized = true;
@@ -194,196 +194,190 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
         }
 
         ctx.request_repaint_after(std::time::Duration::from_millis(50));
+    }
 
-        if self.is_visible {
-            let mut visuals = egui::Visuals::dark();
-            visuals.window_rounding = 14.0.into();
-            ctx.set_visuals(visuals);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if !self.is_visible {
+            return;
+        }
 
-            let panel_frame = egui::Frame::none()
-                .fill(egui::Color32::from_black_alpha(230))
-                .rounding(14.0)
-                .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(60)))
-                .inner_margin(egui::Margin::same(12.0));
+        let ctx = ui.ctx().clone();
 
-            egui::CentralPanel::default()
-                .frame(panel_frame)
-                .show(ctx, |ui| {
-                    ui.vertical(|ui| {
-                        if !self.search.results.is_empty() {
-                            if ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
-                                self.search.selected_idx =
-                                    (self.search.selected_idx + 1) % self.search.results.len();
-                                ui.input_mut(|i| {
-                                    i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
-                                });
-                            }
-                            if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
-                                self.search.selected_idx = if self.search.selected_idx == 0 {
-                                    self.search.results.len() - 1
-                                } else {
-                                    self.search.selected_idx - 1
-                                };
-                                ui.input_mut(|i| {
-                                    i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
-                                });
-                            }
-                            if ui.input(|i| i.key_pressed(egui::Key::PageDown)) {
-                                self.search.selected_idx = (self.search.selected_idx + 8)
-                                    .min(self.search.results.len() - 1);
-                                ui.input_mut(|i| {
-                                    i.consume_key(egui::Modifiers::NONE, egui::Key::PageDown)
-                                });
-                            }
-                            if ui.input(|i| i.key_pressed(egui::Key::PageUp)) {
-                                self.search.selected_idx =
-                                    self.search.selected_idx.saturating_sub(8);
-                                ui.input_mut(|i| {
-                                    i.consume_key(egui::Modifiers::NONE, egui::Key::PageUp)
-                                });
-                            }
-                        }
+        let mut visuals = egui::Visuals::dark();
+        visuals.window_corner_radius = egui::CornerRadius::same(14);
+        ctx.set_visuals(visuals);
 
-                        if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                            self.search
-                                .execute_selected(&mut self.history, &P::create_browser());
-                            self.hide_launcher(ctx);
+        let panel_frame = egui::Frame::new()
+            .fill(egui::Color32::from_black_alpha(230))
+            .corner_radius(egui::CornerRadius::same(14))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(60)))
+            .inner_margin(egui::Margin::same(12));
+
+        egui::CentralPanel::default()
+            .frame(panel_frame)
+            .show_inside(ui, |ui| {
+                ui.vertical(|ui| {
+                    if !self.search.results.is_empty() {
+                        if ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+                            self.search.selected_idx =
+                                (self.search.selected_idx + 1) % self.search.results.len();
                             ui.input_mut(|i| {
-                                i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                                i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
                             });
                         }
-                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                            if self.search.search_query.is_empty() {
-                                self.hide_launcher(ctx);
+                        if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
+                            self.search.selected_idx = if self.search.selected_idx == 0 {
+                                self.search.results.len() - 1
                             } else {
-                                self.search.search_query.clear();
-                                self.search.update_search(&self.history);
-                            }
+                                self.search.selected_idx - 1
+                            };
                             ui.input_mut(|i| {
-                                i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                                i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
                             });
                         }
+                        if ui.input(|i| i.key_pressed(egui::Key::PageDown)) {
+                            self.search.selected_idx =
+                                (self.search.selected_idx + 8).min(self.search.results.len() - 1);
+                            ui.input_mut(|i| {
+                                i.consume_key(egui::Modifiers::NONE, egui::Key::PageDown)
+                            });
+                        }
+                        if ui.input(|i| i.key_pressed(egui::Key::PageUp)) {
+                            self.search.selected_idx = self.search.selected_idx.saturating_sub(8);
+                            ui.input_mut(|i| {
+                                i.consume_key(egui::Modifiers::NONE, egui::Key::PageUp)
+                            });
+                        }
+                    }
 
-                        ui.horizontal(|ui| {
-                            draw_search_icon(ui);
-                            let response = ui.add(
-                                egui::TextEdit::singleline(&mut self.search.search_query)
-                                    .hint_text("Search apps or type web search...")
-                                    .font(egui::FontId::proportional(22.0))
-                                    .frame(false)
-                                    .desired_width(f32::INFINITY)
-                                    .text_color(egui::Color32::WHITE),
-                            );
+                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        self.search
+                            .execute_selected(&mut self.history, &P::create_browser());
+                        self.hide_launcher(&ctx);
+                        ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                    }
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        if self.search.search_query.is_empty() {
+                            self.hide_launcher(&ctx);
+                        } else {
+                            self.search.search_query.clear();
+                            self.search.update_search(&self.history);
+                        }
+                        ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+                    }
 
-                            if response.changed() {
-                                self.search.update_search(&self.history);
-                            }
+                    ui.horizontal(|ui| {
+                        draw_search_icon(ui);
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut self.search.search_query)
+                                .hint_text("Search apps or type web search...")
+                                .font(egui::FontId::proportional(22.0))
+                                .frame(egui::Frame::NONE)
+                                .desired_width(f32::INFINITY)
+                                .text_color(egui::Color32::WHITE),
+                        );
 
-                            response.request_focus();
-                        });
-
-                        if !self.search.results.is_empty() {
-                            ui.add_space(8.0);
-                            ui.separator();
-                            ui.add_space(8.0);
-
-                            egui::ScrollArea::vertical()
-                                .max_height(358.0)
-                                .show(ui, |ui| {
-                                    for (idx, result) in self.search.results.iter().enumerate() {
-                                        let is_selected = idx == self.search.selected_idx;
-                                        let mut frame = egui::Frame::none()
-                                            .inner_margin(egui::Margin::symmetric(14.0, 8.0))
-                                            .rounding(8.0);
-
-                                        if is_selected {
-                                            frame =
-                                                frame.fill(egui::Color32::from_rgba_unmultiplied(
-                                                    64, 128, 242, 210,
-                                                ));
-                                        }
-
-                                        let inner = frame.show(ui, |ui| {
-                                            ui.horizontal(|ui| {
-                                                if let Some(texture) =
-                                                    self.icon_cache.get(ctx, &result.icon)
-                                                {
-                                                    let img = egui::Image::new(&texture)
-                                                        .fit_to_exact_size(egui::vec2(28.0, 28.0));
-                                                    ui.add(img);
-                                                } else {
-                                                    draw_default_icon(ui);
-                                                }
-                                                let name_text = highlighted_name(
-                                                    &result.name,
-                                                    &result.matched_indices,
-                                                );
-                                                ui.label(name_text);
-                                                ui.with_layout(
-                                                    egui::Layout::right_to_left(
-                                                        egui::Align::Center,
-                                                    ),
-                                                    |ui| {
-                                                        let kind_text = match result.kind {
-                                                            ResultKind::Application => "App",
-                                                            ResultKind::WebSearch => "Web",
-                                                            ResultKind::Bookmark => "Bookmark",
-                                                            ResultKind::Calculator => "Calc",
-                                                            ResultKind::Url => "URL",
-                                                        };
-                                                        ui.label(
-                                                            egui::RichText::new(kind_text)
-                                                                .size(11.0)
-                                                                .color(egui::Color32::from_gray(
-                                                                    140,
-                                                                )),
-                                                        );
-                                                    },
-                                                );
-                                            });
-                                        });
-
-                                        if is_selected {
-                                            ui.scroll_to_rect(
-                                                inner.response.rect,
-                                                Some(egui::Align::Center),
-                                            );
-                                        }
-                                    }
-                                });
+                        if response.changed() {
+                            self.search.update_search(&self.history);
                         }
 
-                        ui.add_space(10.0);
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new(
-                                    "↑↓ Navigate    ↵ Open    esc Dismiss    = Calc",
-                                )
+                        response.request_focus();
+                    });
+
+                    if !self.search.results.is_empty() {
+                        ui.add_space(8.0);
+                        ui.separator();
+                        ui.add_space(8.0);
+
+                        egui::ScrollArea::vertical()
+                            .max_height(358.0)
+                            .show(ui, |ui| {
+                                for (idx, result) in self.search.results.iter().enumerate() {
+                                    let is_selected = idx == self.search.selected_idx;
+                                    let mut frame = egui::Frame::new()
+                                        .inner_margin(egui::Margin::symmetric(14, 8))
+                                        .corner_radius(egui::CornerRadius::same(8));
+
+                                    if is_selected {
+                                        frame = frame.fill(egui::Color32::from_rgba_unmultiplied(
+                                            64, 128, 242, 210,
+                                        ));
+                                    }
+
+                                    let inner = frame.show(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            if let Some(texture) =
+                                                self.icon_cache.get(&ctx, &result.icon)
+                                            {
+                                                let img = egui::Image::new(&texture)
+                                                    .fit_to_exact_size(egui::vec2(28.0, 28.0));
+                                                ui.add(img);
+                                            } else {
+                                                draw_default_icon(ui);
+                                            }
+                                            let name_text = highlighted_name(
+                                                &result.name,
+                                                &result.matched_indices,
+                                            );
+                                            ui.label(name_text);
+                                            ui.with_layout(
+                                                egui::Layout::right_to_left(egui::Align::Center),
+                                                |ui| {
+                                                    let kind_text = match result.kind {
+                                                        ResultKind::Application => "App",
+                                                        ResultKind::WebSearch => "Web",
+                                                        ResultKind::Bookmark => "Bookmark",
+                                                        ResultKind::Calculator => "Calc",
+                                                        ResultKind::Url => "URL",
+                                                    };
+                                                    ui.label(
+                                                        egui::RichText::new(kind_text)
+                                                            .size(11.0)
+                                                            .color(egui::Color32::from_gray(140)),
+                                                    );
+                                                },
+                                            );
+                                        });
+                                    });
+
+                                    if is_selected {
+                                        ui.scroll_to_rect(
+                                            inner.response.rect,
+                                            Some(egui::Align::Center),
+                                        );
+                                    }
+                                }
+                            });
+                    }
+
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("↑↓ Navigate    ↵ Open    esc Dismiss    = Calc")
                                 .size(10.0)
                                 .color(egui::Color32::from_gray(100)),
-                            );
-                        });
+                        );
                     });
                 });
+            });
 
-            let result_count = self.search.results.len();
-            let base_height = 80.0;
-            let result_height = 44.0;
-            let separator_height = 16.0;
-            let footer_height = 26.0;
-            let visible_results = result_count.min(8) as f32;
-            let desired_height = if result_count > 0 {
-                base_height + separator_height + (visible_results * result_height) + footer_height
-            } else {
-                base_height + footer_height
-            };
-            let desired_height = desired_height.min(480.0);
+        let result_count = self.search.results.len();
+        let base_height = 80.0;
+        let result_height = 44.0;
+        let separator_height = 16.0;
+        let footer_height = 26.0;
+        let visible_results = result_count.min(8) as f32;
+        let desired_height = if result_count > 0 {
+            base_height + separator_height + (visible_results * result_height) + footer_height
+        } else {
+            base_height + footer_height
+        };
+        let desired_height = desired_height.min(480.0);
 
-            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-                650.0,
-                desired_height,
-            )));
-        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+            650.0,
+            desired_height,
+        )));
     }
 }
 
@@ -456,7 +450,7 @@ fn highlighted_name(name: &str, indices: &[usize]) -> egui::WidgetText {
             },
         );
     }
-    egui::WidgetText::LayoutJob(layout_job)
+    egui::WidgetText::LayoutJob(layout_job.into())
 }
 
 impl<P: Platform> MunLauncher<P> {
