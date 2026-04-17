@@ -80,6 +80,7 @@ pub fn run<P: Platform>() -> eframe::Result<()> {
                 initialized: false,
                 icon_cache,
                 had_focus: false,
+                needs_centering: false,
             })
         }),
     )
@@ -105,6 +106,7 @@ struct MunLauncher<P: Platform> {
     initialized: bool,
     icon_cache: icon_cache::IconCache,
     had_focus: bool,
+    needs_centering: bool,
 }
 
 impl<P: Platform> eframe::App for MunLauncher<P> {
@@ -116,6 +118,12 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
         if !self.initialized {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             self.initialized = true;
+        }
+
+        if self.needs_centering && self.is_visible {
+            if self.center_on_screen(ctx) {
+                self.needs_centering = false;
+            }
         }
 
         if self.is_visible {
@@ -433,6 +441,7 @@ impl<P: Platform> MunLauncher<P> {
     fn hide_launcher(&mut self, ctx: &egui::Context) {
         self.is_visible = false;
         self.had_focus = false;
+        self.needs_centering = false;
         self.search.search_query.clear();
         self.search.results.clear();
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
@@ -442,7 +451,8 @@ impl<P: Platform> MunLauncher<P> {
         self.is_visible = !self.is_visible;
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(self.is_visible));
         if self.is_visible {
-            self.center_on_screen(ctx);
+            self.needs_centering = true;
+            ctx.request_repaint();
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             self.search.update_search(&self.history);
             self.had_focus = false;
@@ -450,12 +460,16 @@ impl<P: Platform> MunLauncher<P> {
             self.search.search_query.clear();
             self.search.results.clear();
             self.had_focus = false;
+            self.needs_centering = false;
         }
     }
 
-    fn center_on_screen(&self, ctx: &egui::Context) {
+    fn center_on_screen(&self, ctx: &egui::Context) -> bool {
         if let Some(cmd) = egui::ViewportCommand::center_on_screen(ctx) {
             ctx.send_viewport_cmd(cmd);
+            true
+        } else {
+            false
         }
     }
 }
