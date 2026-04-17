@@ -185,34 +185,58 @@ impl WindowManager for LinuxWindowManager {
 
         let (fl, fr, ft, fb) = (0, 0, 0, 0);
 
-        let (sx, sy, sw, sh) = (
+        let workarea_atom = match intern_atom(&conn, b"_NET_WORKAREA") {
+            Some(a) => a,
+            None => {
+                log::error!("Failed to intern _NET_WORKAREA atom");
+                return;
+            }
+        };
+        let (sx, sy, sw, sh) = if let Ok(cookie) = conn.get_property(
+            false,
+            screen.root,
+            workarea_atom,
+            AtomEnum::CARDINAL,
             0,
-            0,
-            screen.width_in_pixels as i32,
-            screen.height_in_pixels as i32,
-        );
-        let usable_h = sh;
+            4,
+        )
+            && let Ok(reply) = cookie.reply()
+            && let Some(mut v) = reply.value32()
+        {
+            let x = v.next().unwrap_or(0) as i32;
+            let y = v.next().unwrap_or(0) as i32;
+            let w = v.next().unwrap_or(screen.width_in_pixels as u32) as i32;
+            let h = v.next().unwrap_or(screen.height_in_pixels as u32) as i32;
+            (x, y, w, h)
+        } else {
+            (
+                0,
+                0,
+                screen.width_in_pixels as i32,
+                screen.height_in_pixels as i32,
+            )
+        };
 
         let (nx, ny, mut nw, mut nh) = match action {
-            WindowAction::LeftHalf => (sx, sy, sw / 2, usable_h),
-            WindowAction::RightHalf => (sx + sw / 2, sy, sw / 2, usable_h),
-            WindowAction::TopHalf => (sx, sy, sw, usable_h / 2),
-            WindowAction::BottomHalf => (sx, sy + usable_h / 2, sw, usable_h / 2),
-            WindowAction::TopLeft => (sx, sy, sw / 2, usable_h / 2),
-            WindowAction::TopRight => (sx + sw / 2, sy, sw / 2, usable_h / 2),
-            WindowAction::BottomLeft => (sx, sy + usable_h / 2, sw / 2, usable_h / 2),
-            WindowAction::BottomRight => (sx + sw / 2, sy + usable_h / 2, sw / 2, usable_h / 2),
-            WindowAction::TopLeftSixth => (sx, sy, sw / 3, usable_h / 2),
-            WindowAction::TopCenterSixth => (sx + sw / 3, sy, sw / 3, usable_h / 2),
-            WindowAction::TopRightSixth => (sx + sw * 2 / 3, sy, sw / 3, usable_h / 2),
-            WindowAction::BottomLeftSixth => (sx, sy + usable_h / 2, sw / 3, usable_h / 2),
+            WindowAction::LeftHalf => (sx, sy, sw / 2, sh),
+            WindowAction::RightHalf => (sx + sw / 2, sy, sw / 2, sh),
+            WindowAction::TopHalf => (sx, sy, sw, sh / 2),
+            WindowAction::BottomHalf => (sx, sy + sh / 2, sw, sh / 2),
+            WindowAction::TopLeft => (sx, sy, sw / 2, sh / 2),
+            WindowAction::TopRight => (sx + sw / 2, sy, sw / 2, sh / 2),
+            WindowAction::BottomLeft => (sx, sy + sh / 2, sw / 2, sh / 2),
+            WindowAction::BottomRight => (sx + sw / 2, sy + sh / 2, sw / 2, sh / 2),
+            WindowAction::TopLeftSixth => (sx, sy, sw / 3, sh / 2),
+            WindowAction::TopCenterSixth => (sx + sw / 3, sy, sw / 3, sh / 2),
+            WindowAction::TopRightSixth => (sx + sw * 2 / 3, sy, sw / 3, sh / 2),
+            WindowAction::BottomLeftSixth => (sx, sy + sh / 2, sw / 3, sh / 2),
             WindowAction::BottomCenterSixth => {
-                (sx + sw / 3, sy + usable_h / 2, sw / 3, usable_h / 2)
+                (sx + sw / 3, sy + sh / 2, sw / 3, sh / 2)
             }
             WindowAction::BottomRightSixth => {
-                (sx + sw * 2 / 3, sy + usable_h / 2, sw / 3, usable_h / 2)
+                (sx + sw * 2 / 3, sy + sh / 2, sw / 3, sh / 2)
             }
-            WindowAction::Center => (sx + sw / 4, sy + usable_h / 8, sw / 2, usable_h * 3 / 4),
+            WindowAction::Center => (sx + sw / 4, sy + sh / 8, sw / 2, sh * 3 / 4),
             WindowAction::Maximize => unreachable!(),
         };
 
