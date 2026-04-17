@@ -5,6 +5,8 @@ pub struct LinuxWindowManager;
 
 impl WindowManager for LinuxWindowManager {
     fn perform_action(&self, action: WindowAction) {
+        log::debug!("Performing window action: {:?}", action);
+
         use x11rb::connection::Connection;
         use x11rb::protocol::xproto::{
             AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt, EventMask,
@@ -53,6 +55,8 @@ impl WindowManager for LinuxWindowManager {
             return;
         }
 
+        log::debug!("Active window id: {}", client_win);
+
         if let Ok(cookie) = conn.get_property(
             false,
             client_win,
@@ -64,7 +68,9 @@ impl WindowManager for LinuxWindowManager {
             && let Ok(reply) = cookie.reply()
         {
             let class = String::from_utf8_lossy(&reply.value);
+            log::debug!("Active window class: {}", class.trim_end_matches('\0'));
             if class.contains("mun") {
+                log::debug!("Skipping action for mun window");
                 return;
             }
         }
@@ -226,26 +232,43 @@ impl WindowManager for LinuxWindowManager {
         nw = cw + fl + fr;
         nh = ch + ft + fb;
 
-        let aux = ConfigureWindowAux::new()
-            .x(nx)
-            .y(ny)
-            .width(nw as u32)
-            .height(nh as u32);
-        let _ = conn.configure_window(frame_win, &aux);
+        let mut x = nx;
+        let mut y = ny;
+        let mut w = nw as u32;
+        let mut h = nh as u32;
 
-        if let Some(moveresize_atom) = intern_atom(&conn, b"_NET_MOVERESIZE_WINDOW") {
-            let l0: u32 = 1 | (1 << 8) | (15 << 12);
-            let data = [l0, nx as u32, ny as u32, cw as u32, ch as u32];
-            let event = ClientMessageEvent::new(32, client_win, moveresize_atom, data);
-            let _ = conn.send_event(
-                false,
-                screen.root,
-                EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
-                event,
+        for i in 0..2 {
+            log::debug!(
+                "[{}] Resizing frame_win={} to x={}, y={}, w={}, h={}",
+                i, frame_win, x, y, w, h
             );
-        }
+            let aux = ConfigureWindowAux::new()
+                .x(x)
+                .y(y)
+                .width(w)
+                .height(h);
+            let _ = conn.configure_window(frame_win, &aux);
+            let _ = conn.flush();
+            std::thread::sleep(std::time::Duration::from_millis(200));
 
-        let _ = conn.flush();
+            if let Some(g) = conn.get_geometry(frame_win).ok().and_then(|c| c.reply().ok()) {
+                let dx = g.x as i32 - nx;
+                let dy = g.y as i32 - ny;
+                let dw = g.width as i32 - nw;
+                let dh = g.height as i32 - nh;
+                log::debug!(
+                    "[{}] actual: x={} y={} w={} h={} delta: x={:+} y={:+} w={:+} h={:+}",
+                    i, g.x, g.y, g.width, g.height, dx, dy, dw, dh
+                );
+                if dx == 0 && dy == 0 && dw == 0 && dh == 0 {
+                    return;
+                }
+                x = nx - dx;
+                y = ny - dy;
+                w = (nw - dw) as u32;
+                h = (nh - dh) as u32;
+            }
+        }
     }
 }
 

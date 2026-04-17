@@ -5,6 +5,8 @@ pub struct MacOSWindowManager;
 
 impl WindowManager for MacOSWindowManager {
     fn perform_action(&self, action: WindowAction) {
+        log::debug!("Performing window action: {:?}", action);
+
         let bounds_script = match action {
             WindowAction::LeftHalf => "{0, 23, desktop_width / 2, desktop_height}",
             WindowAction::RightHalf => "{desktop_width / 2, 23, desktop_width, desktop_height}",
