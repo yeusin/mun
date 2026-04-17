@@ -311,6 +311,8 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
                                                     let img = egui::Image::new(&texture)
                                                         .fit_to_exact_size(egui::vec2(28.0, 28.0));
                                                     ui.add(img);
+                                                } else {
+                                                    draw_default_icon(ui);
                                                 }
                                                 let name_text = highlighted_name(
                                                     &result.name,
@@ -401,6 +403,26 @@ fn draw_search_icon(ui: &mut egui::Ui) {
     let handle_end = egui::pos2(center.x + radius + 4.0, center.y - 1.0 + radius + 4.0);
     ui.painter()
         .line_segment([handle_start, handle_end], egui::Stroke::new(2.5, color));
+}
+
+fn draw_default_icon(ui: &mut egui::Ui) {
+    let (rect, _response) = ui.allocate_exact_size(egui::vec2(28.0, 28.0), egui::Sense::hover());
+    let center = rect.center();
+    let color = egui::Color32::from_gray(80);
+    let fill = egui::Color32::from_rgba_unmultiplied(80, 80, 80, 60);
+
+    ui.painter().rect_filled(rect.shrink(2.0), 4.0, fill);
+    let dot_r = 1.5;
+    let offset = 4.0;
+    for dx in [-1.0, 1.0] {
+        for dy in [-1.0, 1.0] {
+            ui.painter().circle_filled(
+                egui::pos2(center.x + dx * offset, center.y + dy * offset),
+                dot_r,
+                color,
+            );
+        }
+    }
 }
 
 fn highlighted_name(name: &str, indices: &[usize]) -> egui::WidgetText {
