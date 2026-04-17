@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: mun-linux-x86_64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: mun-linux-aarch64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact: mun-macos-x86_64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact: mun-macos-aarch64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" Cargo.toml
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libgtk-3-dev libclang-dev
+          rustup target add ${{ matrix.target }}
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Install macOS target
+        if: runner.os == 'macOS'
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: cargo build --release --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: target/${{ matrix.target }}/release/mun
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release archives
+        run: |
+          cd artifacts
+          for dir in */; do
+            name="${dir%/}"
+            tar -czf "${name}.tar.gz" -C "$dir" mun
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/*.tar.gz
