@@ -270,7 +270,7 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
                         draw_search_icon(ui);
                         let response = ui.add(
                             egui::TextEdit::singleline(&mut self.search.search_query)
-                                .hint_text("Search apps or type web search...")
+                                .hint_text(egui::RichText::new("Search apps or type web search...").size(22.0))
                                 .font(egui::FontId::proportional(22.0))
                                 .frame(egui::Frame::NONE)
                                 .desired_width(f32::INFINITY)
