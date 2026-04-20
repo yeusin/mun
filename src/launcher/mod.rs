@@ -81,6 +81,8 @@ pub fn run<P: Platform>() -> eframe::Result<()> {
                 icon_cache,
                 had_focus: false,
                 needs_centering: false,
+            needs_scroll_reset: false,
+            pending_show: false,
             }))
         }),
     )
@@ -107,6 +109,8 @@ struct MunLauncher<P: Platform> {
     icon_cache: icon_cache::IconCache,
     had_focus: bool,
     needs_centering: bool,
+    needs_scroll_reset: bool,
+    pending_show: bool,
 }
 
 impl<P: Platform> eframe::App for MunLauncher<P> {
@@ -118,6 +122,12 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
         if !self.initialized {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             self.initialized = true;
+        }
+
+        if self.pending_show {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            self.needs_centering = true;
+            self.pending_show = false;
         }
 
         if self.needs_centering && self.is_visible {
@@ -202,6 +212,7 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
         }
 
         let ctx = ui.ctx().clone();
+        let available_height = ui.available_height();
 
         let mut visuals = egui::Visuals::dark();
         visuals.window_corner_radius = egui::CornerRadius::same(14);
@@ -262,6 +273,7 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
                         } else {
                             self.search.search_query.clear();
                             self.search.update_search(&self.history);
+                            self.needs_scroll_reset = true;
                         }
                         ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
                     }
@@ -279,19 +291,27 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
 
                         if response.changed() {
                             self.search.update_search(&self.history);
+                            self.needs_scroll_reset = true;
                         }
 
                         response.request_focus();
                     });
 
-                    if !self.search.results.is_empty() {
+                    let size_ok = (available_height - self.desired_height()).abs() < 2.0;
+
+                    if !self.search.results.is_empty() && size_ok {
                         ui.add_space(8.0);
                         ui.separator();
                         ui.add_space(8.0);
 
-                        egui::ScrollArea::vertical()
+                        let mut scroll_area = egui::ScrollArea::vertical()
                             .max_height(358.0)
-                            .show(ui, |ui| {
+                            .auto_shrink([false, false]);
+                        if self.needs_scroll_reset {
+                            scroll_area = scroll_area.scroll_offset(egui::Vec2::ZERO);
+                            self.needs_scroll_reset = false;
+                        }
+                        scroll_area.show(ui, |ui| {
                                 for (idx, result) in self.search.results.iter().enumerate() {
                                     let is_selected = idx == self.search.selected_idx;
                                     let mut frame = egui::Frame::new()
@@ -340,7 +360,7 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
                                         });
                                     });
 
-                                    if is_selected {
+                                    if is_selected && idx > 0 {
                                         ui.scroll_to_rect(
                                             inner.response.rect,
                                             Some(egui::Align::Center),
@@ -361,22 +381,9 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
                 });
             });
 
-        let result_count = self.search.results.len();
-        let base_height = 80.0;
-        let result_height = 44.0;
-        let separator_height = 16.0;
-        let footer_height = 26.0;
-        let visible_results = result_count.min(8) as f32;
-        let desired_height = if result_count > 0 {
-            base_height + separator_height + (visible_results * result_height) + footer_height
-        } else {
-            base_height + footer_height
-        };
-        let desired_height = desired_height.min(480.0);
-
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
             650.0,
-            desired_height,
+            self.desired_height(),
         )));
     }
 }
@@ -458,6 +465,7 @@ impl<P: Platform> MunLauncher<P> {
         self.is_visible = false;
         self.had_focus = false;
         self.needs_centering = false;
+        self.pending_show = false;
         self.search.search_query.clear();
         self.search.results.clear();
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
@@ -465,18 +473,31 @@ impl<P: Platform> MunLauncher<P> {
 
     fn toggle_launcher(&mut self, ctx: &egui::Context) {
         self.is_visible = !self.is_visible;
-        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(self.is_visible));
         if self.is_visible {
-            self.needs_centering = true;
+            self.search.update_search(&self.history);
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                650.0,
+                self.desired_height(),
+            )));
+            self.pending_show = true;
+            self.needs_scroll_reset = true;
             ctx.request_repaint();
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-            self.search.update_search(&self.history);
             self.had_focus = false;
         } else {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             self.search.search_query.clear();
             self.search.results.clear();
             self.had_focus = false;
             self.needs_centering = false;
+        }
+    }
+
+    fn desired_height(&self) -> f32 {
+        if self.search.results.is_empty() {
+            106.0
+        } else {
+            480.0
         }
     }
 
