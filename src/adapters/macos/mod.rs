@@ -5,15 +5,36 @@ mod system_tray;
 mod window_manager;
 
 use crate::ports::Platform;
+use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicyAccessory};
+use cocoa::base::YES;
+use cocoa::base::nil;
 
 pub struct MacOSPlatform;
+
+pub fn configure_as_accessory_app() {
+    unsafe {
+        let app = NSApp();
+        if app != nil {
+            app.setActivationPolicy_(NSApplicationActivationPolicyAccessory);
+        }
+    }
+}
+
+pub fn activate_app() {
+    unsafe {
+        let app = NSApp();
+        if app != nil {
+            app.activateIgnoringOtherApps_(YES);
+        }
+    }
+}
 
 impl Platform for MacOSPlatform {
     type Scanner = app_scanner::MacOSAppScanner;
     type WinMgr = window_manager::MacOSWindowManager;
     type Browser = browser::OpenCommandBrowser;
-    type Tray = system_tray::NoOpSystemTray;
-    type TrayHandle = ();
+    type Tray = system_tray::MenuBarSystemTray;
+    type TrayHandle = system_tray::MenuBarTrayHandle;
     type Bookmarks = bookmark::MacOSBookmarkScanner;
 
     fn create_scanner() -> Self::Scanner {

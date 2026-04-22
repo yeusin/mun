@@ -14,23 +14,40 @@ impl AppScanner for MacOSAppScanner {
             .map(|h| format!("{}/Applications", h))
             .unwrap_or_else(|_| String::from("/Applications"));
 
-        let dirs = ["/Applications", &user_apps, "/System/Applications"];
+        let dirs = [
+            "/Applications",
+            &user_apps,
+            "/System/Applications",
+            "/System/Library/CoreServices",
+        ];
 
         for dir in dirs {
-            if let Ok(entries) = std::fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().and_then(|s| s.to_str()) == Some("app") {
-                        if let Some(app) = parse_macos_app(&path) {
-                            let key = app.name.to_lowercase();
-                            apps.entry(key).or_insert(app);
-                        }
-                    }
-                }
-            }
+            scan_app_dir(&PathBuf::from(dir), &mut apps);
         }
 
         apps.into_values().collect()
+    }
+}
+
+fn scan_app_dir(dir: &PathBuf, apps: &mut BTreeMap<String, AppInfo>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        if path.extension().and_then(|s| s.to_str()) == Some("app") {
+            if let Some(app) = parse_macos_app(&path) {
+                let key = app.name.to_lowercase();
+                apps.entry(key).or_insert(app);
+            }
+            continue;
+        }
+
+        if path.is_dir() {
+            scan_app_dir(&path, apps);
+        }
     }
 }
 

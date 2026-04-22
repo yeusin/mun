@@ -14,7 +14,7 @@ pub fn show_settings_viewport(
     let show_settings_arc = Arc::clone(show_settings_arc);
     let recording_action_arc = Arc::clone(recording_action_arc);
 
-    ctx.show_viewport_immediate(
+    ctx.show_viewport_deferred(
         egui::ViewportId::from_hash_of("mun_settings"),
         egui::ViewportBuilder::default()
             .with_title("Mun Settings")
@@ -27,7 +27,10 @@ pub fn show_settings_viewport(
             visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(45, 45, 45);
             ctx.set_visuals(visuals);
 
-            if class == egui::ViewportClass::Immediate {
+            if matches!(
+                class,
+                egui::ViewportClass::Deferred | egui::ViewportClass::Immediate
+            ) {
                 egui::CentralPanel::default().show_inside(ui, |ui| {
                     ui.add_space(10.0);
                     ui.heading(egui::RichText::new("Mun Preferences").size(24.0).strong());
@@ -176,34 +179,25 @@ pub fn show_settings_viewport(
                 if let Some(action) = rec_action.clone() {
                     let mut recorded = None;
                     ctx.input(|i| {
-                        for key in egui::Key::ALL {
-                            if i.key_pressed(*key) {
+                        for event in &i.events {
+                            if let egui::Event::Key {
+                                key,
+                                pressed: true,
+                                repeat: false,
+                                modifiers,
+                                ..
+                            } = event
+                            {
                                 let key_str = format!("{:?}", key);
-                                if !["Alt", "Ctrl", "Shift", "Command", "MacCmd"]
-                                    .contains(&key_str.as_str())
-                                {
-                                    let mut modifiers = Vec::new();
-                                    if i.modifiers.alt {
-                                        modifiers.push("Alt".to_string());
-                                    }
-                                    if i.modifiers.ctrl {
-                                        modifiers.push("Ctrl".to_string());
-                                    }
-                                    if i.modifiers.shift {
-                                        modifiers.push("Shift".to_string());
-                                    }
-                                    if (i.modifiers.mac_cmd || i.modifiers.command)
-                                        && !i.modifiers.ctrl
-                                    {
-                                        modifiers.push("Meta".to_string());
-                                    }
-
-                                    recorded = Some(ConfigKey {
-                                        modifiers,
-                                        key: key_str,
-                                    });
-                                    break;
+                                if is_modifier_only_key(&key_str) {
+                                    continue;
                                 }
+
+                                recorded = Some(ConfigKey {
+                                    modifiers: config_modifiers(*modifiers),
+                                    key: key_str,
+                                });
+                                break;
                             }
                         }
                     });
@@ -227,6 +221,27 @@ pub fn show_settings_viewport(
             }
         },
     );
+}
+
+fn is_modifier_only_key(key: &str) -> bool {
+    matches!(key, "Alt" | "Ctrl" | "Shift" | "Command" | "MacCmd")
+}
+
+fn config_modifiers(modifiers: egui::Modifiers) -> Vec<String> {
+    let mut recorded = Vec::new();
+    if modifiers.alt {
+        recorded.push("Alt".to_string());
+    }
+    if modifiers.ctrl {
+        recorded.push("Ctrl".to_string());
+    }
+    if modifiers.shift {
+        recorded.push("Shift".to_string());
+    }
+    if modifiers.mac_cmd {
+        recorded.push("Meta".to_string());
+    }
+    recorded
 }
 
 fn hotkey_row_ui(

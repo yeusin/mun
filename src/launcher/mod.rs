@@ -49,7 +49,6 @@ pub fn run<P: Platform>() -> eframe::Result<()> {
             }
 
             let (tx, rx) = channel();
-
             let _tray_handle = P::setup_tray(tx);
 
             let initial_apps = P::create_scanner().scan_apps();
@@ -120,12 +119,17 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if !self.initialized {
+            #[cfg(target_os = "macos")]
+            crate::adapters::macos::configure_as_accessory_app();
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             self.initialized = true;
         }
 
         if self.pending_show {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            #[cfg(target_os = "macos")]
+            crate::adapters::macos::activate_app();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             self.needs_centering = true;
             self.pending_show = false;
         }
@@ -482,7 +486,6 @@ impl<P: Platform> MunLauncher<P> {
             self.pending_show = true;
             self.needs_scroll_reset = true;
             ctx.request_repaint();
-            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             self.had_focus = false;
         } else {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
