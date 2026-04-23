@@ -1,4 +1,5 @@
 pub mod app_info;
+pub mod autostart;
 pub mod calculator;
 pub mod tray_event;
 pub mod window_action;

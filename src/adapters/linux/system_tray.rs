@@ -42,6 +42,7 @@ impl Tray for MunTray {
     fn menu(&self) -> Vec<MenuItem<Self>> {
         let tx = self.sender.clone();
         let tx_settings = self.sender.clone();
+        let tx_autostart = self.sender.clone();
         let tx_quit = self.sender.clone();
         vec![
             StandardItem {
@@ -56,6 +57,18 @@ impl Tray for MunTray {
                 label: "Settings".into(),
                 activate: Box::new(move |_| {
                     let _ = tx_settings.send(TrayEvent::Settings);
+                }),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: if crate::domain::autostart::is_autostart_enabled() {
+                    "✓ Launch at Login".into()
+                } else {
+                    "Launch at Login".into()
+                },
+                activate: Box::new(move |_| {
+                    let _ = tx_autostart.send(TrayEvent::ToggleAutostart);
                 }),
                 ..Default::default()
             }

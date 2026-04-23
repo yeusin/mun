@@ -21,10 +21,19 @@ impl SystemTray for MenuBarSystemTray {
     fn setup(tx: Sender<TrayEvent>) -> Self::Handle {
         let toggle_id = MenuId::new("toggle");
         let settings_id = MenuId::new("settings");
+        let autostart_id = MenuId::new("autostart");
         let quit_id = MenuId::new("quit");
+
+        let autostart_label = if crate::domain::autostart::is_autostart_enabled() {
+            "✓ Launch at Login"
+        } else {
+            "Launch at Login"
+        };
 
         let toggle = MenuItem::with_id(toggle_id.clone(), "Show Launcher", true, None);
         let settings = MenuItem::with_id(settings_id.clone(), "Settings", true, None);
+        let autostart =
+            MenuItem::with_id(autostart_id.clone(), autostart_label, true, None);
         let quit = MenuItem::with_id(quit_id.clone(), "Quit", true, None);
 
         let submenu = Submenu::with_items(
@@ -33,6 +42,7 @@ impl SystemTray for MenuBarSystemTray {
             &[
                 &toggle,
                 &settings,
+                &autostart,
                 &PredefinedMenuItem::separator(),
                 &quit,
             ],
@@ -40,13 +50,16 @@ impl SystemTray for MenuBarSystemTray {
         .expect("failed to build tray submenu");
 
         let menu = Menu::new();
-        menu.append(&submenu).expect("failed to append tray submenu");
+        menu.append(&submenu)
+            .expect("failed to append tray submenu");
 
         MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
             let tray_event = if event.id == toggle_id {
                 Some(TrayEvent::Toggle)
             } else if event.id == settings_id {
                 Some(TrayEvent::Settings)
+            } else if event.id == autostart_id {
+                Some(TrayEvent::ToggleAutostart)
             } else if event.id == quit_id {
                 Some(TrayEvent::Quit)
             } else {

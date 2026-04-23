@@ -1,3 +1,5 @@
+pub mod bookmarks;
+
 #[cfg(target_os = "linux")]
 pub mod linux;
 

@@ -1,6 +1,7 @@
 use super::hotkey;
 use super::SharedState;
 use crate::config::{Config, ConfigKey};
+use crate::domain::autostart;
 use eframe::egui;
 use std::sync::{Arc, Mutex};
 
@@ -136,7 +137,25 @@ pub fn show_settings_viewport(
                                 );
                             }
 
+                            let launch_at_login = state.config.launch_at_login;
                             drop(state);
+
+                            ui.add_space(15.0);
+                            ui.separator();
+                            ui.add_space(10.0);
+                            ui.label(
+                                egui::RichText::new("SYSTEM")
+                                    .color(egui::Color32::from_rgb(100, 150, 255))
+                                    .strong(),
+                            );
+                            ui.add_space(4.0);
+                            let mut launch_at_login = launch_at_login;
+                            if ui.checkbox(&mut launch_at_login, "Launch at Login").changed() {
+                                let mut state = state_arc.lock().unwrap();
+                                state.config.launch_at_login = launch_at_login;
+                                state.config.save();
+                                autostart::set_autostart(launch_at_login);
+                            }
                         });
 
                     ui.add_space(20.0);

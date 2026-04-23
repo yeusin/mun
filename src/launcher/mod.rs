@@ -193,6 +193,14 @@ impl<P: Platform> eframe::App for MunLauncher<P> {
                     let mut show = self.show_settings.lock().unwrap();
                     *show = true;
                 }
+                TrayEvent::ToggleAutostart => {
+                    let mut state = self.state.lock().unwrap();
+                    let enabled = !state.config.launch_at_login;
+                    state.config.launch_at_login = enabled;
+                    state.config.save();
+                    drop(state);
+                    crate::domain::autostart::set_autostart(enabled);
+                }
                 TrayEvent::Quit => std::process::exit(0),
             }
         }

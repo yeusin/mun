@@ -9,6 +9,8 @@ const MAX_HISTORY_QUERIES: usize = 500;
 pub struct Config {
     pub launcher_hotkey: ConfigKey,
     pub window_actions: HashMap<String, ConfigKey>,
+    #[serde(default)]
+    pub launch_at_login: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -144,6 +146,7 @@ impl Default for Config {
                 key: "Space".to_string(),
             },
             window_actions,
+            launch_at_login: false,
         }
     }
 }
